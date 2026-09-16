@@ -4,7 +4,7 @@ let attackTypesChart = null;
 // TODO: after deploying the backend to Render, replace this with your
 // live URL, e.g. "https://cloud-ai-ids-backend.onrender.com"
 // (see DEPLOY.md). Leave as localhost only for local development.
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://cloud-ai-ids.onrender.com";
 
 // Show selected file name
 const fileInput = document.getElementById("csvFile");
