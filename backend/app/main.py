@@ -1,9 +1,11 @@
 from fastapi import FastAPI, UploadFile, File
 import pandas as pd
+import os
 from app.database import get_connection
 from app.schemas import StatsSummary
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.schemas import PerformanceSummary
 from sklearn.metrics import confusion_matrix
 from app.schemas import ConfusionMatrixResponse
@@ -14,6 +16,15 @@ from datetime import datetime
 from app.preprocess import preprocess
 from app.model import predict
 from app.schemas import DetectionResponse
+
+# Same deterministic path resolution as model.py: walk up from this
+# file's own absolute location (backend/app/main.py -> backend/app ->
+# backend -> repo root) rather than relying on the process's working
+# directory, which differs between local dev, Docker, and Render.
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+BACKEND_DIR = os.path.dirname(APP_DIR)
+PROJECT_ROOT = os.path.dirname(BACKEND_DIR)
+FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
 
 app = FastAPI(
     title="Cloud-Based AI Intrusion Detection System",
@@ -34,7 +45,11 @@ scan_history = []
 # -------------------------
 # Health Check
 # -------------------------
-@app.get("/")
+# Moved from "/" to "/health" so the root path is free for the actual
+# dashboard (see the StaticFiles mount at the bottom of this file).
+# Nothing here changed - it's the same endpoint, same response, just a
+# different path. Render/uptime monitors should point at /health now.
+@app.get("/health")
 def health_check():
     return {"status": "IDS backend running"}
 
@@ -395,3 +410,19 @@ async def attack_type_performance(file: UploadFile = File(...)):
         "total_records": int(len(df)),
         "breakdown": breakdown
     }
+
+# -------------------------
+# Serve the frontend dashboard
+# -------------------------
+# This MUST be the last thing added to the app. FastAPI/Starlette match
+# routes in the order they were registered, so every @app.get/@app.post
+# route above takes priority for its own path - this mount only catches
+# whatever wasn't already matched, and serves index.html for "/" (and
+# for any other unmatched path, since html=True).
+#
+# Guarded with exists() so the backend still starts even in a setup
+# where frontend/ isn't deployed alongside backend/ (e.g. if you ever
+# split them into separate repos) - it'll just skip serving the UI and
+# /health is still available for a deploy health check.
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

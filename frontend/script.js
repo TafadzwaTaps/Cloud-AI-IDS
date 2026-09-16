@@ -1,10 +1,16 @@
 let trafficChart = null;
 let attackTypesChart = null;
 
-// TODO: after deploying the backend to Render, replace this with your
-// live URL, e.g. "https://cloud-ai-ids-backend.onrender.com"
-// (see DEPLOY.md). Leave as localhost only for local development.
-const API_BASE = "https://cloud-ai-ids.onrender.com";
+// Empty string = same origin as whatever served this page. Since the
+// backend now serves this dashboard directly (see the StaticFiles
+// mount in main.py), this works automatically both locally
+// (http://localhost:8000/) and on Render (https://your-app.onrender.com/)
+// with no editing needed after each deploy.
+//
+// Only hardcode a different URL here if you're serving this frontend
+// from somewhere else than the backend itself (e.g. a separate static
+// host) - in that case set it back to the full backend URL.
+const API_BASE = "";
 
 // Show selected file name
 const fileInput = document.getElementById("csvFile");

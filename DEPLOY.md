@@ -25,16 +25,21 @@
 4. Environment -> Add Environment Variable:
    - `DATABASE_URL` = the Supabase pooler connection string from step 1.3.
 5. Deploy. Render gives you a URL like `https://cloud-ai-ids-backend.onrender.com`.
-6. Sanity check: `curl https://cloud-ai-ids-backend.onrender.com/` should
+6. Sanity check: `curl https://cloud-ai-ids-backend.onrender.com/health` should
    return `{"status": "IDS backend running"}`.
+7. Open `https://cloud-ai-ids-backend.onrender.com/` in a browser - this is
+   the dashboard itself (`frontend/index.html`), served directly by the
+   backend. No separate frontend deploy step needed: `main.py` mounts
+   `frontend/` as static files, and `script.js`'s `API_BASE` is set to
+   same-origin, so it just works at whatever URL the backend is running on.
 
 ## 3. Frontend
-The `frontend/` folder is static HTML/CSS/JS - no build step.
-- Easiest: Render -> New -> Static Site -> point at the same repo,
-  publish directory `frontend`.
-- In `frontend/script.js`, change `API_BASE` from
-  `http://localhost:8000` to your Render backend URL from step 2.5.
-- Redeploy the static site after that edit.
+Already covered by step 2.7 above - the backend serves it. You don't
+need a separate Render Static Site for this project unless you
+specifically want the frontend hosted somewhere else than the backend
+(e.g. a CDN). If you do that, remember to set `API_BASE` in
+`frontend/script.js` back to the full backend URL, since it won't be
+same-origin anymore.
 
 ## Notes
 - The RandomForest model files (`model/*.pkl`, ~38MB) are committed to
