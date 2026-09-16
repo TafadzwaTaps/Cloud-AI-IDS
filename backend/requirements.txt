@@ -5,4 +5,4 @@ numpy
 scikit-learn
 joblib
 python-multipart
-psycopg2-binary
+supabase

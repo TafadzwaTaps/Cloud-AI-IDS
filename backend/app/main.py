@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File
 import pandas as pd
 import os
-from app.database import get_connection
+from app.database import get_supabase
 from app.schemas import StatsSummary
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from fastapi.middleware.cors import CORSMiddleware
@@ -138,20 +138,13 @@ async def detect_summary(file: UploadFile = File(...)):
     risk_level = get_risk_level(ratio)
 
     # ---- DATABASE LOGGING ----
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO intrusion_logs 
-        (total_records, attacks_detected, benign_detected, attack_ratio)
-        VALUES (%s, %s, %s, %s)
-        """,
-        (total, attacks, benign, ratio)
-    )
-
-    conn.commit()
-    conn.close()
+    supabase = get_supabase()
+    supabase.table("intrusion_logs").insert({
+        "total_records": total,
+        "attacks_detected": attacks,
+        "benign_detected": benign,
+        "attack_ratio": ratio,
+    }).execute()
 
     # ---- IN-MEMORY HISTORY ----
     scan_history.append({
@@ -219,64 +212,52 @@ async def detect_evaluate(file: UploadFile = File(...)):
 
 @app.get("/stats/summary", response_model=StatsSummary)
 def stats_summary():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT 
-            COUNT(*) AS total_scans,
-            SUM(total_records) AS total_records_processed,
-            SUM(attacks_detected) AS total_attacks_detected,
-            AVG(attack_ratio) AS average_attack_ratio
-        FROM intrusion_logs
-    """)
-
-    row = cursor.fetchone()
-    conn.close()
+    supabase = get_supabase()
+    # PostgREST (Supabase's REST API) doesn't do arbitrary SQL aggregates
+    # like COUNT/SUM/AVG through the table query builder the way raw SQL
+    # did - so we fetch the columns we need and aggregate here instead.
+    # Fine for this table's scale (one row per scan, not per packet).
+    # If scan volume ever exceeds Supabase's default 1000-row request
+    # cap, raise "Max Rows" in Project Settings -> API, or switch this
+    # to a Postgres RPC function that does the aggregation server-side.
+    response = (
+        supabase.table("intrusion_logs")
+        .select("total_records, attacks_detected, attack_ratio")
+        .execute()
+    )
+    rows = response.data or []
+    total_scans = len(rows)
 
     return {
-        "total_scans": row[0] or 0,
-        "total_records_processed": row[1] or 0,
-        "total_attacks_detected": row[2] or 0,
-        "average_attack_ratio": round(float(row[3]), 4) if row[3] is not None else 0.0
+        "total_scans": total_scans,
+        "total_records_processed": sum(r["total_records"] for r in rows),
+        "total_attacks_detected": sum(r["attacks_detected"] for r in rows),
+        "average_attack_ratio": (
+            round(sum(r["attack_ratio"] for r in rows) / total_scans, 4)
+            if total_scans else 0.0
+        ),
     }
 
 # Model Performance Monitoring
 # -------------------------
 @app.get("/stats/performance", response_model=PerformanceSummary)
 def performance_stats():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    # Overall performance stats
-    cursor.execute("""
-        SELECT 
-            COUNT(*) AS total_scans,
-            AVG(attack_ratio),
-            MAX(attack_ratio),
-            MIN(attack_ratio)
-        FROM intrusion_logs
-    """)
-
-    row = cursor.fetchone()
-
-    # Last 10 scans
-    cursor.execute("""
-        SELECT attack_ratio
-        FROM intrusion_logs
-        ORDER BY id DESC
-        LIMIT 10
-    """)
-
-    recent = [float(r[0]) for r in cursor.fetchall()]
-
-    conn.close()
+    supabase = get_supabase()
+    response = (
+        supabase.table("intrusion_logs")
+        .select("attack_ratio")
+        .order("id", desc=True)
+        .execute()
+    )
+    ratios = [float(r["attack_ratio"]) for r in (response.data or [])]
+    total_scans = len(ratios)
+    recent = ratios[:10]  # already ordered most-recent-first
 
     return {
-        "total_scans": row[0] or 0,
-        "average_attack_ratio": round(float(row[1]), 4) if row[1] else 0.0,
-        "max_attack_ratio": round(float(row[2]), 4) if row[2] else 0.0,
-        "min_attack_ratio": round(float(row[3]), 4) if row[3] else 0.0,
+        "total_scans": total_scans,
+        "average_attack_ratio": round(sum(ratios) / total_scans, 4) if ratios else 0.0,
+        "max_attack_ratio": round(max(ratios), 4) if ratios else 0.0,
+        "min_attack_ratio": round(min(ratios), 4) if ratios else 0.0,
         "recent_scans": recent
     }
 

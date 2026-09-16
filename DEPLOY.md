@@ -3,15 +3,14 @@
 ## 1. Supabase (database)
 1. Create a project at supabase.com.
 2. Project -> SQL Editor -> New query -> paste `database/supabase_init.sql` -> Run.
-3. Project Settings -> Database -> Connection string -> copy the
-   **Transaction pooler** string (port 6543). This is the one to use on
-   Render - it's built for lots of short-lived serverless-style
-   connections, unlike the direct connection (port 5432), which has a
-   low connection-count ceiling on the free tier.
-4. It looks like:
-   `postgresql://postgres.xxxxxxxx:[YOUR-PASSWORD]@aws-0-<region>.pooler.supabase.com:6543/postgres`
-   Fill in your actual database password (the one you set when creating
-   the project, not a placeholder).
+3. Project Settings -> API. You need two values from this page:
+   - **Project URL** (`https://xxxxxxxx.supabase.co`) -> `SUPABASE_URL`
+   - **service_role key** (under "Project API keys") -> `SUPABASE_SERVICE_KEY`
+
+   The service_role key bypasses Row Level Security, which is the
+   right choice for a backend service like this one that owns its own
+   data. Never expose the service_role key to the frontend/browser -
+   it stays server-side only, as a Render environment variable.
 
 ## 2. Render (backend)
 1. Push this repo to GitHub/GitLab.
@@ -22,8 +21,9 @@
    - Build command: `pip install -r backend/requirements.txt`
    - Start command: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
    - Render sets `$PORT` itself - do not hardcode 8000 here.
-4. Environment -> Add Environment Variable:
-   - `DATABASE_URL` = the Supabase pooler connection string from step 1.3.
+4. Environment -> Add Environment Variable (both required):
+   - `SUPABASE_URL` = the Project URL from step 1.3.
+   - `SUPABASE_SERVICE_KEY` = the service_role key from step 1.3.
 5. Deploy. Render gives you a URL like `https://cloud-ai-ids-backend.onrender.com`.
 6. Sanity check: `curl https://cloud-ai-ids-backend.onrender.com/health` should
    return `{"status": "IDS backend running"}`.

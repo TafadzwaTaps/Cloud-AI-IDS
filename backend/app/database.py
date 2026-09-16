@@ -1,45 +1,46 @@
 import os
-import psycopg2
+from supabase import create_client, Client
+
+_supabase_client: Client | None = None
 
 
-def get_connection():
+def get_supabase() -> Client:
     """
-    Connects to Supabase (managed Postgres).
+    Returns a cached Supabase client, authenticated with a project API
+    key - not a raw Postgres connection string. The DSN-parsing error
+    you hit (psycopg2 choking on the Supabase project URL) was because
+    DATABASE_URL needs a postgresql:// connection string, not the
+    https:// project URL - this sidesteps that whole class of mistake
+    by talking to Supabase's REST API instead of Postgres directly.
 
-    Preferred: set DATABASE_URL to the connection string from
-    Supabase -> Project Settings -> Database -> Connection string.
-    On Render, use the "Transaction pooler" string (port 6543) rather
-    than the direct connection (port 5432) - Render web services can
-    open many short-lived connections, and Supabase's direct connection
-    slot limit is low. The pooler string looks like:
+    Required env vars (Render -> Environment):
+      SUPABASE_URL          Project Settings -> API -> Project URL
+                             e.g. https://xxxxxxxx.supabase.co
+      SUPABASE_SERVICE_KEY  Project Settings -> API -> service_role key
+                             (recommended for a backend - bypasses RLS)
 
-        postgresql://postgres.xxxxxxxx:[PASSWORD]@aws-0-region.pooler.supabase.com:6543/postgres
-
-    Falls back to individual DB_* variables if DATABASE_URL isn't set,
-    for local development against a plain Postgres instance.
+    SUPABASE_ANON_KEY / SUPABASE_KEY are accepted as fallbacks if you'd
+    rather use the anon key with row-level security policies instead of
+    the service role key.
     """
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        return psycopg2.connect(database_url)
+    global _supabase_client
+    if _supabase_client is not None:
+        return _supabase_client
 
-    host = os.getenv("DB_HOST")
-    port = os.getenv("DB_PORT", "5432")
-    database = os.getenv("DB_NAME", "postgres")
-    user = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASSWORD")
+    url = os.getenv("SUPABASE_URL")
+    key = (
+        os.getenv("SUPABASE_SERVICE_KEY")
+        or os.getenv("SUPABASE_KEY")
+        or os.getenv("SUPABASE_ANON_KEY")
+    )
 
-    if not host or not password:
+    if not url or not key:
         raise RuntimeError(
-            "No database configuration found. Set DATABASE_URL (recommended - "
-            "copy it from Supabase: Project Settings > Database > Connection "
-            "string) or set DB_HOST and DB_PASSWORD individually."
+            "Missing Supabase configuration. Set SUPABASE_URL and "
+            "SUPABASE_SERVICE_KEY (or SUPABASE_ANON_KEY) as environment "
+            "variables - see database.py for where to find them in the "
+            "Supabase dashboard."
         )
 
-    return psycopg2.connect(
-        host=host,
-        port=port,
-        dbname=database,
-        user=user,
-        password=password,
-        sslmode="require",
-    )
+    _supabase_client = create_client(url, key)
+    return _supabase_client
