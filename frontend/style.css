@@ -1,0 +1,208 @@
+body {
+margin: 0;
+font-family: "Segoe UI", Arial, sans-serif;
+background: #020617;
+color: #e5e7eb;
+}
+
+/* Container */
+.container {
+max-width: 1200px;
+margin: auto;
+padding: 25px;
+}
+
+/* Top Bar */
+.topbar {
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 25px;
+}
+
+.topbar h1 {
+color: #22c55e;
+margin: 0;
+}
+
+.status-pill {
+background: #052e16;
+color: #22c55e;
+padding: 6px 14px;
+border-radius: 20px;
+font-size: 0.9rem;
+border: 1px solid #22c55e;
+}
+
+/* Sections */
+section {
+background: #0f172a;
+padding: 20px;
+margin-top: 20px;
+border-radius: 12px;
+border: 1px solid #1f2937;
+box-shadow: 0 0 20px rgba(0,0,0,0.3);
+}
+
+/* Upload */
+.upload-card {
+text-align: center;
+}
+
+.file-upload {
+display: inline-block;
+padding: 12px 20px;
+border: 1px dashed #22c55e;
+border-radius: 8px;
+cursor: pointer;
+margin: 10px 0;
+}
+
+.file-upload input {
+display: none;
+}
+
+.primary-btn {
+background: #22c55e;
+color: #020617;
+border: none;
+padding: 10px 25px;
+border-radius: 8px;
+font-weight: bold;
+cursor: pointer;
+}
+
+.primary-btn:hover {
+background: #16a34a;
+}
+
+.status-text {
+margin-top: 10px;
+color: #9ca3af;
+}
+
+/* Stats Grid */
+.stats-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+gap: 20px;
+}
+
+/* Stat Cards */
+.stat-card {
+background: #020617;
+padding: 20px;
+border-radius: 12px;
+text-align: center;
+border: 1px solid #1f2937;
+transition: 0.3s;
+}
+
+.stat-card:hover {
+transform: translateY(-4px);
+box-shadow: 0 0 15px rgba(34,197,94,0.3);
+}
+
+.stat-card h3 {
+color: #9ca3af;
+font-size: 0.85rem;
+margin-bottom: 10px;
+}
+
+.stat-card p {
+font-size: 2rem;
+font-weight: bold;
+color: #22c55e;
+margin: 0;
+}
+
+/* Tables */
+table {
+width: 100%;
+border-collapse: collapse;
+margin-top: 15px;
+background: #020617;
+border-radius: 8px;
+overflow: hidden;
+}
+
+th {
+background: #111827;
+color: #22c55e;
+font-weight: 600;
+}
+
+td, th {
+padding: 10px;
+border-bottom: 1px solid #1f2937;
+text-align: center;
+}
+
+tr:hover {
+background: #020617;
+}
+
+/* Alerts */
+.alert {
+padding: 18px;
+border-radius: 10px;
+text-align: center;
+font-weight: bold;
+}
+
+.alert.normal {
+background: #052e16;
+border: 1px solid #22c55e;
+box-shadow: 0 0 10px rgba(34,197,94,0.3);
+}
+
+.alert.warning {
+background: #3f2f00;
+border: 1px solid #facc15;
+box-shadow: 0 0 10px rgba(250,204,21,0.3);
+}
+
+.alert.critical {
+background: #3b0000;
+border: 1px solid #ef4444;
+box-shadow: 0 0 15px rgba(239,68,68,0.5);
+animation: blink 1s infinite;
+}
+
+/* Blink Animation */
+@keyframes blink {
+0% { opacity: 1; }
+50% { opacity: 0.7; }
+100% { opacity: 1; }
+}
+
+/* File Info Spacing */
+.file-info {
+    margin-bottom: 25px; /* adds space between file info and the button */
+    color: #9ca3af;      /* keeps it consistent with status-text */
+    font-size: 0.95rem;
+    font-style: italic;
+}
+
+.intel-card {
+  background: #020617;
+  border: 1px solid #22c55e;
+  padding: 15px;
+  margin-top: 15px;
+  border-radius: 8px;
+}
+
+.intel-card h3 {
+  color: #22c55e;
+  margin-bottom: 10px;
+}
+
+#riskLevel {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+#recommendationsList li {
+  margin: 8px 0;
+  color: #9ca3af;
+}

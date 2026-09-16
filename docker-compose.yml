@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: TmxExtraServer
+    environment:
+      SA_PASSWORD: "Qwerty23$"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+    networks:
+      - ids_network
+
+  backend:
+    build:
+      context: .                   # project root
+      dockerfile: backend/Dockerfile
+    container_name: ids_backend
+    depends_on:
+      - sqlserver
+    ports:
+      - "8000:8000"
+    environment:
+      DB_SERVER: sqlserver
+      DB_PORT: 1433
+      DB_NAME: CloudAI_IDS
+      DB_USER: sa
+      DB_PASSWORD: "Qwerty23$"
+    networks:
+      - ids_network
+    # Optional: uncomment if you want live editing of code or model
+    # volumes:
+    #   - ./backend/app:/app/app
+    #   - ./model:/app/model
+
+volumes:
+  sql_data:
+
+networks:
+  ids_network:
+    driver: bridge
