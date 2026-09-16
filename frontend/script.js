@@ -1,338 +1,472 @@
-let trafficChart = null;
-let attackTypesChart = null;
-
-// Empty string = same origin as whatever served this page. Since the
-// backend now serves this dashboard directly (see the StaticFiles
-// mount in main.py), this works automatically both locally
-// (http://localhost:8000/) and on Render (https://your-app.onrender.com/)
-// with no editing needed after each deploy.
-//
-// Only hardcode a different URL here if you're serving this frontend
-// from somewhere else than the backend itself (e.g. a separate static
-// host) - in that case set it back to the full backend URL.
+// Same-origin: the backend serves this file directly (see main.py's
+// StaticFiles mount), so this works unedited on localhost and on Render.
 const API_BASE = "";
 
-// Show selected file name
-const fileInput = document.getElementById("csvFile");
-const fileInfo = document.getElementById("fileInfo");
+// ---------------------------------------------------------------
+// Shared state
+// ---------------------------------------------------------------
+let allLogs = [];              // every flow we know about, most-recent-first
+let totalFlowsEver = 0;        // cumulative counter, survives log ring-buffer trimming
+let modelPerf = null;          // cached /model/performance response
+let modelInfo = null;          // cached /model/info response
+let featureImportance = null;  // cached /model/feature-importance response
 
-fileInput.addEventListener("change", () => {
-    if (fileInput.files.length > 0) {
-        fileInfo.textContent = `Selected file: ${fileInput.files[0].name}`;
-    } else {
-        fileInfo.textContent = "No file selected";
-    }
-});
+const trafficSeries = { labels: [], total: [], attacks: [] };
+const MAX_SERIES_POINTS = 20;
 
+const BUCKET_COLORS = {
+  DoS: "#ef4444", DDoS: "#ec4899", PortScan: "#22c55e",
+  BruteForce: "#fb923c", WebAttack: "#a78bfa", Botnet: "#22d3ee"
+};
 
-async function analyzeAll() {
-  const fileInput = document.getElementById("csvFile");
-  const status = document.getElementById("status");
+let chartTraffic, chartVector, chartDonut, chartMitre, chartFeature;
 
-  if (!fileInput.files.length) {
-    status.textContent = "Please select a CSV file.";
-    return;
-  }
+// ---------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------
+const VIEWS = ["dashboard", "logs", "alerts", "model"];
+const TITLES = {
+  dashboard: "Live Threat Dashboard",
+  logs: "Network Traffic Logs",
+  alerts: "Alert History & Analytics",
+  model: "CIC-IDS2017 ML Model"
+};
 
-  const file = fileInput.files[0];
-  status.textContent = "Analyzing...";
+function showView(name) {
+  VIEWS.forEach(v => {
+    document.getElementById("view-" + v).style.display = (v === name) ? "block" : "none";
+  });
+  document.querySelectorAll(".nav-item").forEach(el => {
+    el.classList.toggle("active", el.dataset.view === name);
+  });
+  document.getElementById("pageTitle").textContent = TITLES[name];
 
-  try {
-    // ---------- Summary ----------
-    let formData = new FormData();
-    formData.append("file", file);
-    let attackForm = new FormData();
-    attackForm.append("file", file);
-    loadAttackTypes(attackForm);
-
-
-
-    const summaryRes = await fetch(`${API_BASE}/detect/summary`, {
-      method: "POST",
-      body: formData
-    });
-
-    const summary = await summaryRes.json();
-
-    document.getElementById("summary").style.display = "block";
-    document.getElementById("totalRecords").textContent = summary.total_records;
-    document.getElementById("attacksDetected").textContent = summary.attacks_detected;
-    document.getElementById("benignDetected").textContent = summary.benign_detected;
-    document.getElementById("attackRatio").textContent =
-      (summary.attack_ratio * 100).toFixed(2) + "%";
-      updateSOCAlert(summary.attack_ratio);
-      renderTrafficChart(summary.benign_detected, summary.attacks_detected);
-
-      // ---------- Threat Intelligence ----------
-      const intelSection = document.getElementById("threatIntel");
-      intelSection.style.display = "block";
-
-      document.getElementById("riskLevel").textContent = summary.risk_level;
-      document.getElementById("analysisText").textContent = summary.analysis;
-
-      const list = document.getElementById("recommendationsList");
-      list.innerHTML = "";
-
-      summary.recommendations.forEach(item => {
-        const li = document.createElement("li");
-        li.textContent = item;
-        list.appendChild(li);
-      });
-
-    // ---------- Evaluation Metrics ----------
-    formData = new FormData();
-    formData.append("file", file);
-
-    const evalRes = await fetch(`${API_BASE}/detect/evaluate`, {
-      method: "POST",
-      body: formData
-    });
-
-    const evalData = await evalRes.json();
-
-    document.getElementById("metrics").style.display = "block";
-    document.getElementById("accuracy").textContent = evalData.metrics.accuracy;
-    document.getElementById("precision").textContent = evalData.metrics.precision;
-    document.getElementById("recall").textContent = evalData.metrics.recall;
-    document.getElementById("f1").textContent = evalData.metrics.f1_score;
-
-
-    // ---------- Confusion Matrix ----------
-    formData = new FormData();
-    formData.append("file", file);
-
-    const confRes = await fetch(`${API_BASE}/stats/confusion`, {
-      method: "POST",
-      body: formData
-    });
-
-    const conf = await confRes.json();
-
-    document.getElementById("confusion").style.display = "block";
-    document.getElementById("tn").textContent = conf.true_negative;
-    document.getElementById("fp").textContent = conf.false_positive;
-    document.getElementById("fn").textContent = conf.false_negative;
-    document.getElementById("tp").textContent = conf.true_positive;
-
-
-    // ---------- System Stats ----------
-    loadStats();
-
-    status.textContent = "Analysis complete ✔";
-
-  } catch (err) {
-    console.error(err);
-    status.textContent = "Error during analysis";
-  }
-
-  
-  loadHistory();
-
+  if (name === "dashboard") renderDashboard();
+  if (name === "logs") renderLogsTable();
+  if (name === "alerts") renderAlerts();
+  if (name === "model") loadModelView();
 }
 
-async function loadStats() {
-  try {
-    const res = await fetch(`${API_BASE}/stats/summary`);
-    const stats = await res.json();
-
-    document.getElementById("statScans").textContent = stats.total_scans;
-    document.getElementById("statRecords").textContent = stats.total_records_processed;
-    document.getElementById("statAttacks").textContent = stats.total_attacks_detected;
-    document.getElementById("statRatio").textContent =
-      (stats.average_attack_ratio * 100).toFixed(2) + "%";
-  } catch (err) {
-    console.error("Failed to load stats", err);
-  }
+// ---------------------------------------------------------------
+// Toast notifications
+// ---------------------------------------------------------------
+function showToast(message, sub) {
+  const host = document.getElementById("toastHost");
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.innerHTML = `${message}${sub ? `<div class="toast-sub">${sub}</div>` : ""}`;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 4500);
 }
 
-// Load system stats on page open
-loadStats();
-
-function updateSOCAlert(attackRatio) {
-  const alertBox = document.getElementById("socAlert");
-  const title = document.getElementById("alertTitle");
-  const message = document.getElementById("alertMessage");
-
-  // Reset classes
-  alertBox.classList.remove("normal", "warning", "critical");
-
-  if (attackRatio < 0.05) {
-    alertBox.classList.add("normal");
-    title.textContent = "System Status: NORMAL";
-    message.textContent = "Network traffic is within safe limits.";
-  }
-  else if (attackRatio < 0.20) {
-    alertBox.classList.add("warning");
-    title.textContent = "System Status: SUSPICIOUS";
-    message.textContent = "Elevated attack activity detected. Monitor closely.";
-  }
-  else {
-    alertBox.classList.add("critical");
-    title.textContent = "System Status: CRITICAL";
-    message.textContent = "High attack volume detected! Immediate investigation required.";
-  }
-}
-
-async function loadAttackTypes(formData) {
+// ---------------------------------------------------------------
+// Traffic simulation
+// ---------------------------------------------------------------
+async function simulate(attackType, opts) {
+  opts = opts || {};
+  const count = opts.count || (attackType === "Normal" ? 15 : 12);
   try {
-    const res = await fetch(`${API_BASE}/stats/attack-types`, {
-      method: "POST",
-      body: formData
+    const res = await fetch(`${API_BASE}/simulate?attack_type=${encodeURIComponent(attackType)}&count=${count}`, {
+      method: "POST"
     });
-
+    if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
 
-    const section = document.getElementById("attackTypesSection");
-    const tbody = document.querySelector("#attackTable tbody");
+    allLogs = data.entries.concat(allLogs).slice(0, 500);
+    totalFlowsEver += data.injected;
 
-    tbody.innerHTML = "";
-
-    const types = data.attack_types;
-
-    if (!types || Object.keys(types).length === 0) {
-      section.style.display = "none";
-      return;
+    const threats = data.entries.filter(e => e.severity !== "benign").length;
+    if (!opts.silent) {
+      showToast(`Injected ${data.injected} flows (${attackType})`, `${threats} threat(s) detected`);
     }
 
-    section.style.display = "block";
+    const nowLabel = new Date().toLocaleTimeString();
+    trafficSeries.labels.push(nowLabel);
+    trafficSeries.total.push(data.injected);
+    trafficSeries.attacks.push(threats);
+    if (trafficSeries.labels.length > MAX_SERIES_POINTS) {
+      trafficSeries.labels.shift();
+      trafficSeries.total.shift();
+      trafficSeries.attacks.shift();
+    }
 
-    // Sort by count descending
-    const sorted = Object.entries(types).sort((a, b) => b[1] - a[1]);
-
-    sorted.forEach(([type, count]) => {
-      const row = document.createElement("tr");
-      row.innerHTML = `<td>${type}</td><td>${count}</td>`;
-      tbody.appendChild(row);
-    });
-    renderAttackTypesChart(types);
-
+    const activeView = VIEWS.find(v => document.getElementById("view-" + v).style.display !== "none");
+    if (activeView === "dashboard") renderDashboard();
+    if (activeView === "logs") renderLogsTable();
+    if (activeView === "alerts") renderAlerts();
   } catch (err) {
-    console.error("Failed to load attack types", err);
+    if (!opts.silent) showToast("Simulation failed", String(err.message || err));
   }
 }
 
-// Render attack types pie chart
-function renderTrafficChart(benign, attacks) {
-  const ctx = document.getElementById("trafficChart").getContext("2d");
+// Keep the dashboard feeling alive with a small background trickle of
+// normal traffic, independent of manual button clicks.
+setInterval(() => simulate("Normal", { count: 4, silent: true }), 7000);
 
-  document.getElementById("chartsSection").style.display = "block";
+// ---------------------------------------------------------------
+// Dashboard view
+// ---------------------------------------------------------------
+function renderDashboard() {
+  const threats = allLogs.filter(l => l.severity !== "benign");
+  const critical = threats.filter(l => l.severity === "critical").length;
+  const total = allLogs.length || 1;
+  const anomalyIndex = Math.round((threats.length / total) * 1000) / 10;
 
-  if (trafficChart) {
-    trafficChart.destroy();
-  }
+  document.getElementById("kpiFlowsRate").textContent =
+    trafficSeries.total.length ? (trafficSeries.total.reduce((a, b) => a + b, 0) / trafficSeries.total.length).toFixed(1) : "0.0";
+  document.getElementById("kpiThreats").textContent = threats.length;
+  document.getElementById("kpiThreatsSub").textContent = `${critical} critical`;
+  document.getElementById("kpiAnomaly").textContent = anomalyIndex.toFixed(1);
+  document.getElementById("kpiAccuracy").textContent = modelPerf ? (modelPerf.accuracy * 100).toFixed(1) + "%" : "–";
+  document.getElementById("kpiTotalFlows").textContent = totalFlowsEver;
 
-  trafficChart = new Chart(ctx, {
-    type: "pie",
-    data: {
-      labels: ["Benign", "Attack"],
-      datasets: [{
-        data: [benign, attacks],
-        backgroundColor: ["#22c55e", "#ef4444"]
-      }]
-    },
+  renderTrafficLineChart();
+  renderVectorBarChart();
+  renderLiveFeed();
+
+  if (!modelPerf) fetchModelPerformance().then(() => {
+    document.getElementById("kpiAccuracy").textContent = modelPerf ? (modelPerf.accuracy * 100).toFixed(1) + "%" : "–";
+  });
+}
+
+function renderTrafficLineChart() {
+  const ctx = document.getElementById("trafficLineChart");
+  const data = {
+    labels: trafficSeries.labels,
+    datasets: [
+      {
+        label: "Total flows",
+        data: trafficSeries.total,
+        borderColor: "#ef4444",
+        backgroundColor: "rgba(239,68,68,0.12)",
+        fill: true, tension: 0.35, pointRadius: 0
+      },
+      {
+        label: "Attack flows",
+        data: trafficSeries.attacks,
+        borderColor: "#22d3ee",
+        backgroundColor: "rgba(34,211,238,0.08)",
+        fill: true, tension: 0.35, pointRadius: 0
+      }
+    ]
+  };
+  if (chartTraffic) { chartTraffic.data = data; chartTraffic.update(); return; }
+  chartTraffic = new Chart(ctx, {
+    type: "line",
+    data,
     options: {
       responsive: true,
-      plugins: {
-        legend: {
-          labels: {
-            color: "#e5e7eb"
-          }
-        }
+      scales: {
+        x: { ticks: { color: "#5b6478", maxTicksLimit: 6 }, grid: { color: "rgba(148,163,184,0.06)" } },
+        y: { beginAtZero: true, ticks: { color: "#5b6478" }, grid: { color: "rgba(148,163,184,0.06)" } }
+      },
+      plugins: { legend: { labels: { color: "#8b96ab" } } }
+    }
+  });
+}
+
+function renderVectorBarChart() {
+  const counts = {};
+  allLogs.forEach(l => {
+    if (l.severity === "benign") return;
+    counts[l.label] = (counts[l.label] || 0) + 1;
+  });
+  const labels = Object.keys(BUCKET_COLORS).filter(k => counts[k]);
+  const values = labels.map(l => counts[l]);
+  const colors = labels.map(l => BUCKET_COLORS[l]);
+
+  const ctx = document.getElementById("vectorBarChart");
+  const data = { labels, datasets: [{ data: values, backgroundColor: colors, borderRadius: 4 }] };
+  if (chartVector) { chartVector.data = data; chartVector.update(); return; }
+  chartVector = new Chart(ctx, {
+    type: "bar",
+    data,
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, ticks: { color: "#5b6478" }, grid: { color: "rgba(148,163,184,0.06)" } },
+        y: { ticks: { color: "#8b96ab" }, grid: { display: false } }
       }
     }
   });
 }
 
-function renderAttackTypesChart(types) {
-  const canvas = document.getElementById("attackTypesChart");
-  if (!canvas) return;
+function severityBadge(sev) {
+  const cls = { critical: "badge-critical", high: "badge-high", medium: "badge-medium", benign: "badge-benign" }[sev] || "badge-medium";
+  return `<span class="badge ${cls}">${sev}</span>`;
+}
 
-  const ctx = canvas.getContext("2d");
+function renderLiveFeed() {
+  const host = document.getElementById("liveFeed");
+  host.innerHTML = allLogs.slice(0, 15).map(l => `
+    <div class="feed-row">
+      <span class="feed-time">${l.time.split(" ")[1] || l.time}</span>
+      ${severityBadge(l.severity)}
+      <span class="feed-src">${l.label} &nbsp; ${l.source} → ${l.dest}</span>
+      <span class="feed-conf">${(l.confidence * 100).toFixed(0)}%</span>
+    </div>
+  `).join("") || `<p class="note-text">No traffic yet - click a TRAFFIC SIM button above to inject flows.</p>`;
+}
 
-  if (attackTypesChart) {
-    attackTypesChart.destroy();
-  }
+// ---------------------------------------------------------------
+// Traffic Logs view
+// ---------------------------------------------------------------
+function populateAttackFilterOptions() {
+  const select = document.getElementById("logsAttackFilter");
+  const current = select.value;
+  const labels = Array.from(new Set(allLogs.map(l => l.label))).sort();
+  select.innerHTML = `<option value="all">Attack: all</option>` +
+    labels.map(l => `<option value="${l}">${l}</option>`).join("");
+  select.value = labels.includes(current) ? current : "all";
+}
 
-  const labels = Object.keys(types);
-  const values = Object.values(types);
+function renderLogsTable() {
+  populateAttackFilterOptions();
 
-  attackTypesChart = new Chart(ctx, {
-    type: "bar",
-    data: {
-      labels: labels,
-      datasets: [{
-        label: "Attack Count",
-        data: values,
-        backgroundColor: "#ef4444"
-      }]
-    },
-    options: {
-      responsive: true
+  const search = document.getElementById("logsSearch").value.toLowerCase();
+  const attackFilter = document.getElementById("logsAttackFilter").value;
+  const severityFilter = document.getElementById("logsSeverityFilter").value;
+  const protoFilter = document.getElementById("logsProtoFilter").value;
+
+  const filtered = allLogs.filter(l => {
+    if (attackFilter !== "all" && l.label !== attackFilter) return false;
+    if (severityFilter !== "all" && l.severity !== severityFilter) return false;
+    if (protoFilter !== "all" && l.proto !== protoFilter) return false;
+    if (search) {
+      const hay = `${l.source} ${l.dest} ${l.label}`.toLowerCase();
+      if (!hay.includes(search)) return false;
     }
+    return true;
   });
+
+  const tbody = document.querySelector("#logsTable tbody");
+  tbody.innerHTML = filtered.slice(0, 200).map(l => `
+    <tr>
+      <td>${l.time}</td>
+      <td>${l.source} → ${l.dest}</td>
+      <td>${l.proto}:${l.port}</td>
+      <td>${l.label}</td>
+      <td>${severityBadge(l.severity)}</td>
+      <td>${(l.confidence * 100).toFixed(0)}%</td>
+      <td><button class="inspect-link" onclick='inspectEntry(${JSON.stringify(JSON.stringify(l))})'>inspect</button></td>
+    </tr>
+  `).join("") || `<tr><td colspan="7" class="note-text">No matching flows.</td></tr>`;
 }
 
-// ---------- Live Monitoring ----------
-async function liveMonitor() {
-  try {
-    const res = await fetch(`${API_BASE}/stats/summary`);
-    const stats = await res.json();
-
-    // Update stats
-    document.getElementById("statScans").textContent = stats.total_scans;
-    document.getElementById("statRecords").textContent = stats.total_records_processed;
-    document.getElementById("statAttacks").textContent = stats.total_attacks_detected;
-    document.getElementById("statRatio").textContent =
-      (stats.average_attack_ratio * 100).toFixed(2) + "%";
-
-    // Update SOC alert based on average ratio
-    updateSOCAlert(stats.average_attack_ratio);
-
-    // Update timestamp
-    const now = new Date().toLocaleTimeString();
-    document.getElementById("lastUpdate").textContent = now;
-
-  } catch (err) {
-    console.error("Live monitor failed", err);
-  }
+function inspectEntry(jsonStr) {
+  const entry = JSON.parse(jsonStr);
+  alert(JSON.stringify(entry, null, 2));
 }
 
-// Start live monitoring
-setInterval(liveMonitor, 5000);
+async function uploadTrafficCsv(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append("file", file);
 
-liveMonitor();
-
-async function loadHistory() {
   try {
-    const res = await fetch(`${API_BASE}/stats/history`);
+    const res = await fetch(`${API_BASE}/detect/csv`, { method: "POST", body: formData });
+    if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
 
-    const tbody = document.querySelector("#historyTable tbody");
-    tbody.innerHTML = "";
+    // The uploaded CSV's own IPs (if any) aren't part of what /detect/csv
+    // returns - it only returns row index/prediction/confidence. Source/
+    // dest below are placeholders for display, same as the simulator -
+    // see the backend comment in main.py for why this dataset has none.
+    const now = new Date().toLocaleString();
+    const newEntries = data.results.map(r => ({
+      time: now,
+      source: "uploaded row " + r.row,
+      dest: "-",
+      proto: "-",
+      port: "-",
+      label: r.prediction === "ATTACK" ? "Uploaded-Attack" : "BENIGN",
+      severity: r.prediction === "ATTACK" ? "high" : "benign",
+      confidence: r.confidence,
+      mitre: "-"
+    }));
 
-    const history = data.history;
-
-    if (!history || history.length === 0) {
-      tbody.innerHTML = "<tr><td colspan='4'>No scans yet</td></tr>";
-      return;
-    }
-
-    history.reverse().forEach(item => {
-      const row = document.createElement("tr");
-
-      row.innerHTML = `
-        <td>${item.time}</td>
-        <td>${item.total_records}</td>
-        <td>${item.attacks_detected}</td>
-        <td>${(item.attack_ratio * 100).toFixed(2)}%</td>
-      `;
-
-      tbody.appendChild(row);
-    });
-
+    allLogs = newEntries.concat(allLogs).slice(0, 500);
+    totalFlowsEver += newEntries.length;
+    showToast(`Analyzed ${data.total_records} rows`, `${data.attacks_detected} flagged as attacks`);
+    renderLogsTable();
   } catch (err) {
-    console.error("Failed to load history", err);
+    showToast("Upload failed", String(err.message || err));
+  } finally {
+    event.target.value = "";
   }
 }
 
+// ---------------------------------------------------------------
+// Alert History view
+// ---------------------------------------------------------------
+function renderAlerts() {
+  const alerts = allLogs.filter(l => l.severity !== "benign");
+  document.getElementById("alertsTotal").textContent = `${alerts.length} total alerts recorded`;
 
+  const sevCounts = { critical: 0, high: 0, medium: 0 };
+  alerts.forEach(a => { if (sevCounts[a.severity] !== undefined) sevCounts[a.severity]++; });
+
+  const donutCtx = document.getElementById("severityDonut");
+  const donutData = {
+    labels: ["critical", "high", "medium"],
+    datasets: [{ data: [sevCounts.critical, sevCounts.high, sevCounts.medium], backgroundColor: ["#ef4444", "#fb923c", "#facc15"], borderWidth: 0 }]
+  };
+  if (chartDonut) { chartDonut.data = donutData; chartDonut.update(); }
+  else {
+    chartDonut = new Chart(donutCtx, {
+      type: "doughnut",
+      data: donutData,
+      options: { plugins: { legend: { position: "bottom", labels: { color: "#8b96ab" } } }, cutout: "65%" }
+    });
+  }
+
+  const mitreCounts = {};
+  alerts.forEach(a => { if (a.mitre && a.mitre !== "-") mitreCounts[a.mitre] = (mitreCounts[a.mitre] || 0) + 1; });
+  const mitreLabels = Object.keys(mitreCounts);
+  const mitreValues = mitreLabels.map(k => mitreCounts[k]);
+
+  const mitreCtx = document.getElementById("mitreBarChart");
+  const mitreData = { labels: mitreLabels, datasets: [{ data: mitreValues, backgroundColor: "#22d3ee", borderRadius: 4 }] };
+  if (chartMitre) { chartMitre.data = mitreData; chartMitre.update(); }
+  else {
+    chartMitre = new Chart(mitreCtx, {
+      type: "bar",
+      data: mitreData,
+      options: {
+        indexAxis: "y",
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { color: "#5b6478" }, grid: { color: "rgba(148,163,184,0.06)" } },
+          y: { ticks: { color: "#8b96ab", font: { size: 10 } }, grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  const tbody = document.querySelector("#alertsTable tbody");
+  tbody.innerHTML = alerts.slice(0, 200).map(a => `
+    <tr>
+      <td>${a.time}</td>
+      <td>${a.label}</td>
+      <td>${severityBadge(a.severity)}</td>
+      <td>${a.source} → ${a.dest}</td>
+      <td>${a.mitre}</td>
+      <td><button class="inspect-link" onclick='inspectEntry(${JSON.stringify(JSON.stringify(a))})'>inspect</button></td>
+    </tr>
+  `).join("") || `<tr><td colspan="6" class="note-text">No alerts yet.</td></tr>`;
+}
+
+function exportAlertsCsv() {
+  const alerts = allLogs.filter(l => l.severity !== "benign");
+  const header = "time,attack,severity,source,dest,confidence,mitre\n";
+  const rows = alerts.map(a =>
+    [a.time, a.label, a.severity, a.source, a.dest, a.confidence, `"${a.mitre}"`].join(",")
+  ).join("\n");
+  const blob = new Blob([header + rows], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "alert_report.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------
+// ML Model view
+// ---------------------------------------------------------------
+async function fetchModelPerformance() {
+  try {
+    const res = await fetch(`${API_BASE}/model/performance`);
+    if (res.ok) modelPerf = await res.json();
+  } catch (e) { /* holdout file may not be deployed - views degrade gracefully */ }
+}
+
+async function loadModelView() {
+  if (!modelInfo) {
+    try {
+      const res = await fetch(`${API_BASE}/model/info`);
+      if (res.ok) modelInfo = await res.json();
+    } catch (e) {}
+  }
+  if (modelInfo) {
+    document.getElementById("modelTitle").textContent = `${modelInfo.algorithm} (${modelInfo.n_estimators} estimators)`;
+    document.getElementById("modelSub").textContent = `${modelInfo.dataset} · v1.0 · ${modelInfo.num_features} features`;
+  }
+
+  if (!modelPerf) await fetchModelPerformance();
+  if (modelPerf) {
+    document.getElementById("mAccuracy").textContent = (modelPerf.accuracy * 100).toFixed(2) + "%";
+    document.getElementById("mPrecision").textContent = (modelPerf.precision * 100).toFixed(2) + "%";
+    document.getElementById("mRecall").textContent = (modelPerf.recall * 100).toFixed(2) + "%";
+    document.getElementById("mF1").textContent = (modelPerf.f1_score * 100).toFixed(2) + "%";
+
+    const cm = modelPerf.confusion_matrix;
+    document.getElementById("cmTn").textContent = cm.true_negative;
+    document.getElementById("cmFp").textContent = cm.false_positive;
+    document.getElementById("cmFn").textContent = cm.false_negative;
+    document.getElementById("cmTp").textContent = cm.true_positive;
+
+    const tbody = document.querySelector("#perTypeTable tbody");
+    tbody.innerHTML = Object.entries(modelPerf.per_type).map(([type, stats]) => `
+      <tr>
+        <td>${type}</td>
+        <td>${stats.total}</td>
+        <td>${stats.recall !== undefined ? (stats.recall * 100).toFixed(1) + "% recall" : (stats.false_positive_rate * 100).toFixed(2) + "% FP rate"}</td>
+      </tr>
+    `).join("");
+  } else {
+    document.querySelector("#perTypeTable tbody").innerHTML =
+      `<tr><td colspan="3" class="note-text">test_holdout.csv not found next to the model - run model/train_model.py first.</td></tr>`;
+  }
+
+  if (!featureImportance) {
+    try {
+      const res = await fetch(`${API_BASE}/model/feature-importance?top_n=10`);
+      if (res.ok) featureImportance = (await res.json()).features;
+    } catch (e) {}
+  }
+  if (featureImportance) {
+    const ctx = document.getElementById("featureImportanceChart");
+    const data = {
+      labels: featureImportance.map(f => f.name).reverse(),
+      datasets: [{ data: featureImportance.map(f => f.importance).reverse(), backgroundColor: "#22d3ee", borderRadius: 4 }]
+    };
+    if (chartFeature) { chartFeature.data = data; chartFeature.update(); }
+    else {
+      chartFeature = new Chart(ctx, {
+        type: "bar",
+        data,
+        options: {
+          indexAxis: "y",
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { beginAtZero: true, ticks: { color: "#5b6478" }, grid: { color: "rgba(148,163,184,0.06)" } },
+            y: { ticks: { color: "#8b96ab", font: { size: 10 } }, grid: { display: false } }
+          }
+        }
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------
+async function boot() {
+  try {
+    const res = await fetch(`${API_BASE}/logs/traffic`);
+    if (res.ok) {
+      const data = await res.json();
+      allLogs = data.logs;
+      totalFlowsEver = allLogs.length;
+    }
+  } catch (e) {}
+
+  await fetchModelPerformance();
+  showView("dashboard");
+}
+
+boot();

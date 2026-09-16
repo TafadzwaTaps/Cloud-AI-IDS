@@ -4,212 +4,264 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
-    <title>🛡 Cloud-Based AI Intrusion Detection System</title>
+    <title>AI-IDS · Cyber Command</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<div class="container">
+<div class="shell">
 
-    <!-- Top Navigation -->
-    <header class="topbar">
-        <h1><span class="brand-icon">🛡</span> AI Cloud Intrusion Detection</h1>
-        <div class="status-pill" id="globalStatus"><span class="status-dot"></span>System Online</div>
-    </header>
-
-    <!-- SOC Alert Banner -->
-    <section id="socAlert" class="alert normal">
-        <h2 id="alertTitle">System Status: NORMAL</h2>
-        <p id="alertMessage">No unusual activity detected.</p>
-    </section>
-
-    <!-- Alert Sound -->
-    <audio id="alertSound">
-        <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" type="audio/ogg">
-    </audio>
-
-    <!-- Upload Section -->
-    <section class="upload-card">
-        <h2>Upload Network Traffic CSV</h2>
-
-        <label class="file-upload">
-            <input type="file" id="csvFile" accept=".csv">
-            <span>📂 Choose CSV File</span>
-        </label>
-
-        <div id="fileInfo" class="file-info">
-            No file selected
-        </div>
-
-        <button class="primary-btn" onclick="analyzeAll()">Analyze Traffic</button>
-        <p id="status" class="status-text"></p>
-    </section>
-
-    <!-- Detection Summary -->
-    <section id="summary" style="display:none;">
-        <h2>Detection Summary</h2>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Total Records</h3>
-                <p id="totalRecords">0</p>
-            </div>
-            <div class="stat-card">
-                <h3>Attacks Detected</h3>
-                <p id="attacksDetected">0</p>
-            </div>
-            <div class="stat-card">
-                <h3>Benign Records</h3>
-                <p id="benignDetected">0</p>
-            </div>
-            <div class="stat-card">
-                <h3>Attack Ratio</h3>
-                <p id="attackRatio">0%</p>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="brand">
+            <span class="brand-icon">🛡</span>
+            <div>
+                <div class="brand-name">AI-IDS</div>
+                <div class="brand-sub">CYBER COMMAND</div>
             </div>
         </div>
-    </section>
 
-    <section id="threatIntel" style="display:none;">
-        <h2>🧠 Threat Intelligence</h2>
+        <nav class="nav">
+            <button class="nav-item active" data-view="dashboard" onclick="showView('dashboard')">
+                <span class="nav-ic">▦</span> Live Dashboard
+            </button>
+            <button class="nav-item" data-view="logs" onclick="showView('logs')">
+                <span class="nav-ic">≋</span> Traffic Logs
+            </button>
+            <button class="nav-item" data-view="alerts" onclick="showView('alerts')">
+                <span class="nav-ic">◔</span> Alert History
+            </button>
+            <button class="nav-item" data-view="model" onclick="showView('model')">
+                <span class="nav-ic">◈</span> ML Model
+            </button>
+        </nav>
 
-        <div class="intel-card">
-            <h3>Threat Level</h3>
-            <p id="riskLevel"></p>
-        </div>
-
-        <div class="intel-card">
-            <h3>Analysis</h3>
-            <p id="analysisText"></p>
-        </div>
-
-        <div class="intel-card">
-            <h3>Recommended Actions</h3>
-            <ul id="recommendationsList"></ul>
-        </div>
-    </section>
-
-    <!-- Charts -->
-    <section id="chartsSection" style="display:none;">
-        <h2>📈 Traffic Visualization</h2>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Attack vs Benign</h3>
-                <canvas id="trafficChart"></canvas>
-            </div>
-            <div class="stat-card">
-                <h3>Attack Types</h3>
-                <canvas id="attackTypesChart"></canvas>
+        <div class="sidebar-footer">
+            <div class="user-avatar">👤</div>
+            <div>
+                <div class="user-name">Security Operator</div>
+                <div class="user-role">ANALYST</div>
             </div>
         </div>
-    </section>
+    </aside>
 
-    <!-- Attack Type Breakdown -->
-    <section id="attackTypesSection" style="display:none;">
-        <h2>⚠ Attack Type Breakdown</h2>
-        <table id="attackTable">
-            <thead>
-                <tr>
-                    <th>Attack Type</th>
-                    <th>Count</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </section>
+    <!-- Main -->
+    <main class="main">
+        <header class="topbar">
+            <div class="topbar-left">
+                <span class="live-dot"></span>
+                <span class="live-label">LIVE</span>
+                <h1 id="pageTitle">Live Threat Dashboard</h1>
+            </div>
+            <div class="topbar-right">
+                <span class="sim-label">TRAFFIC SIM</span>
+                <button class="sim-btn" onclick="simulate('Normal')">📈 Normal</button>
+                <button class="sim-btn sim-dos" onclick="simulate('DoS')">⚡ DoS</button>
+                <button class="sim-btn sim-ddos" onclick="simulate('DDoS')">🌐 DDoS</button>
+                <button class="sim-btn sim-portscan" onclick="simulate('PortScan')">🛰 PortScan</button>
+                <button class="sim-btn sim-bruteforce" onclick="simulate('BruteForce')">🔑 BruteForce</button>
+                <button class="sim-btn sim-webattack" onclick="simulate('WebAttack')">🧨 WebAttack</button>
+            </div>
+        </header>
 
-    <!-- Model Performance -->
-    <section id="metrics" style="display:none;">
-        <h2>Model Performance</h2>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Accuracy</h3>
-                <p id="accuracy">–</p>
-            </div>
-            <div class="stat-card">
-                <h3>Precision</h3>
-                <p id="precision">–</p>
-            </div>
-            <div class="stat-card">
-                <h3>Recall</h3>
-                <p id="recall">–</p>
-            </div>
-            <div class="stat-card">
-                <h3>F1 Score</h3>
-                <p id="f1">–</p>
-            </div>
-        </div>
-    </section>
+        <div id="toastHost" class="toast-host"></div>
 
-    <!-- Confusion Matrix -->
-    <section id="confusion" style="display:none;">
-        <h2>Confusion Matrix</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th></th>
-                    <th>Pred BENIGN</th>
-                    <th>Pred ATTACK</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <th>Actual BENIGN</th>
-                    <td id="tn">-</td>
-                    <td id="fp">-</td>
-                </tr>
-                <tr>
-                    <th>Actual ATTACK</th>
-                    <td id="fn">-</td>
-                    <td id="tp">-</td>
-                </tr>
-            </tbody>
-        </table>
-    </section>
-
-    <!-- System Statistics -->
-    <section id="stats">
-        <h2>📊 System Statistics</h2>
-        <div class="stats-grid">
-            <div class="stat-card">
-                <h3>Total Scans</h3>
-                <p id="statScans">–</p>
+        <!-- ============ VIEW: Live Dashboard ============ -->
+        <section id="view-dashboard" class="view">
+            <div class="kpi-row">
+                <div class="kpi-card">
+                    <div class="kpi-label">Live Flows/batch</div>
+                    <div class="kpi-value" id="kpiFlowsRate">0.0</div>
+                    <div class="kpi-sub">rolling avg</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Active Threats</div>
+                    <div class="kpi-value kpi-danger" id="kpiThreats">0</div>
+                    <div class="kpi-sub" id="kpiThreatsSub">0 critical</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Anomaly Index</div>
+                    <div class="kpi-value kpi-warn" id="kpiAnomaly">0.0</div>
+                    <div class="kpi-sub">of 100</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Model Accuracy</div>
+                    <div class="kpi-value kpi-accent" id="kpiAccuracy">–</div>
+                    <div class="kpi-sub">CIC-IDS2017</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Total Flows</div>
+                    <div class="kpi-value" id="kpiTotalFlows">0</div>
+                    <div class="kpi-sub">analyzed</div>
+                </div>
             </div>
-            <div class="stat-card">
-                <h3>Total Records</h3>
-                <p id="statRecords">–</p>
-            </div>
-            <div class="stat-card">
-                <h3>Total Attacks</h3>
-                <p id="statAttacks">–</p>
-            </div>
-            <div class="stat-card">
-                <h3>Avg Attack Ratio</h3>
-                <p id="statRatio">–</p>
-            </div>
-        </div>
-    </section>
 
-    <!-- History -->
-    <section id="historySection">
-        <h2>🕒 Scan History (Last 20)</h2>
-        <table id="historyTable">
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Total Records</th>
-                    <th>Attacks</th>
-                    <th>Attack Ratio</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </section>
+            <div class="grid-2">
+                <div class="panel">
+                    <h2>📈 Network Traffic vs Attack Activity</h2>
+                    <canvas id="trafficLineChart" height="90"></canvas>
+                </div>
+                <div class="panel">
+                    <h2>Attack Vector Breakdown</h2>
+                    <canvas id="vectorBarChart" height="90"></canvas>
+                </div>
+            </div>
 
-    <!-- Live Monitoring -->
-    <section id="liveSection">
-        <h2>🟢 Live Monitoring</h2>
-        <p>Last update: <span id="lastUpdate">–</span></p>
-    </section>
+            <div class="panel">
+                <h2><span class="live-dot small"></span> Live Threat Feed</h2>
+                <div class="feed" id="liveFeed"></div>
+            </div>
+        </section>
 
+        <!-- ============ VIEW: Traffic Logs ============ -->
+        <section id="view-logs" class="view" style="display:none;">
+            <div class="panel">
+                <div class="logs-toolbar">
+                    <input type="text" id="logsSearch" placeholder="Search IP, or attack label…" oninput="renderLogsTable()">
+                    <select id="logsAttackFilter" onchange="renderLogsTable()">
+                        <option value="all">Attack: all</option>
+                    </select>
+                    <select id="logsSeverityFilter" onchange="renderLogsTable()">
+                        <option value="all">Severity: all</option>
+                        <option value="critical">critical</option>
+                        <option value="high">high</option>
+                        <option value="medium">medium</option>
+                        <option value="benign">benign</option>
+                    </select>
+                    <select id="logsProtoFilter" onchange="renderLogsTable()">
+                        <option value="all">Proto: all</option>
+                        <option value="TCP">TCP</option>
+                        <option value="UDP">UDP</option>
+                    </select>
+                    <label class="upload-btn">
+                        📤 Upload CSV/PCAP
+                        <input type="file" id="logsCsvFile" accept=".csv" onchange="uploadTrafficCsv(event)">
+                    </label>
+                </div>
+
+                <div class="table-wrap">
+                    <table id="logsTable">
+                        <thead>
+                            <tr>
+                                <th>Time</th><th>Source → Dest</th><th>Proto:Port</th>
+                                <th>Label</th><th>Severity</th><th>Conf</th><th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ VIEW: Alert History ============ -->
+        <section id="view-alerts" class="view" style="display:none;">
+            <div class="alerts-summary">
+                <span id="alertsTotal">0 total alerts recorded</span>
+                <button class="export-btn" onclick="exportAlertsCsv()">⬇ Export CSV Report</button>
+            </div>
+
+            <div class="grid-2">
+                <div class="panel">
+                    <h2>◔ Severity Breakdown</h2>
+                    <canvas id="severityDonut" height="180"></canvas>
+                </div>
+                <div class="panel">
+                    <h2>MITRE ATT&CK Mapping</h2>
+                    <canvas id="mitreBarChart" height="180"></canvas>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>🛡 Alert Log</h2>
+                <div class="table-wrap">
+                    <table id="alertsTable">
+                        <thead>
+                            <tr>
+                                <th>Time</th><th>Attack</th><th>Severity</th>
+                                <th>Source → Dest</th><th>MITRE</th><th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ VIEW: ML Model ============ -->
+        <section id="view-model" class="view" style="display:none;">
+            <div class="panel model-card">
+                <div class="model-icon">🧠</div>
+                <div class="model-meta">
+                    <div class="model-title" id="modelTitle">Random Forest</div>
+                    <div class="model-sub" id="modelSub">CIC-IDS2017 · v1.0 · 78 features</div>
+                </div>
+                <div class="model-note">Retraining is not exposed through this dashboard - run model/train_model.py directly.</div>
+            </div>
+
+            <div class="kpi-row">
+                <div class="kpi-card">
+                    <div class="kpi-label">Accuracy</div>
+                    <div class="kpi-value kpi-accent" id="mAccuracy">–</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Precision</div>
+                    <div class="kpi-value" id="mPrecision">–</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Recall</div>
+                    <div class="kpi-value kpi-warn" id="mRecall">–</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">F1 Score</div>
+                    <div class="kpi-value" id="mF1">–</div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="panel">
+                    <h2>⚙ Feature Importance</h2>
+                    <canvas id="featureImportanceChart" height="220"></canvas>
+                </div>
+                <div class="panel">
+                    <h2>Per-Attack-Type Recall <span class="badge-note">real, held-out test data</span></h2>
+                    <p class="note-text">
+                        This model is binary (ATTACK / BENIGN) rather than multi-class, so this
+                        reports genuine recall per real attack type - not fabricated per-class
+                        precision/recall/F1, which would require a multi-class classifier this
+                        system doesn't use.
+                    </p>
+                    <div class="table-wrap">
+                        <table id="perTypeTable">
+                            <thead><tr><th>Type</th><th>Test Rows</th><th>Recall / FP Rate</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Confusion Matrix <span class="badge-note">binary - actual model output</span></h2>
+                <table class="confusion-table">
+                    <thead>
+                        <tr><th></th><th>Pred BENIGN</th><th>Pred ATTACK</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <th>Actual BENIGN</th>
+                            <td class="cell-correct" id="cmTn">-</td>
+                            <td class="cell-wrong" id="cmFp">-</td>
+                        </tr>
+                        <tr>
+                            <th>Actual ATTACK</th>
+                            <td class="cell-wrong" id="cmFn">-</td>
+                            <td class="cell-correct" id="cmTp">-</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>

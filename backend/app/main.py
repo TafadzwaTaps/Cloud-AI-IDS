@@ -1,6 +1,8 @@
 from fastapi import FastAPI, UploadFile, File
 import pandas as pd
 import os
+import random
+from collections import deque
 from app.database import get_supabase
 from app.schemas import StatsSummary
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -14,7 +16,7 @@ from collections import Counter
 from datetime import datetime
 
 from app.preprocess import preprocess
-from app.model import predict
+from app.model import predict, model as ML_MODEL, FEATURE_COLUMNS
 from app.schemas import DetectionResponse
 
 # Same deterministic path resolution as model.py: walk up from this
@@ -390,6 +392,222 @@ async def attack_type_performance(file: UploadFile = File(...)):
     return {
         "total_records": int(len(df)),
         "breakdown": breakdown
+    }
+
+# =========================
+# Live demo: traffic simulator
+# =========================
+# CIC-IDS2017's merged CSV (what this model trained on) doesn't retain
+# real source/destination IPs - they were stripped upstream of the file
+# this project uses. So for a "live" dashboard feel, the IP:port pairs
+# below are randomly generated for DISPLAY ONLY.
+#
+# What is NOT fake: every simulated flow is a REAL row sampled from
+# test_holdout.csv (rows this model has never been trained on), run
+# through the actual preprocess()/predict() pipeline. The predicted
+# label and confidence score are genuine model output, not scripted.
+HOLDOUT_PATH = os.path.join(PROJECT_ROOT, "model", "test_holdout.csv")
+_holdout_df = None
+_holdout_by_bucket = {}
+
+# Maps CIC-IDS2017's granular labels to the 6 categories this dashboard
+# exposes as simulation buttons / filters. Infiltration is folded into
+# Botnet as the closest available bucket - both are post-compromise,
+# low-and-slow activity - rather than inventing a 7th button.
+LABEL_TO_BUCKET = {
+    "BENIGN": "Normal",
+    "DoS Hulk": "DoS", "DoS GoldenEye": "DoS", "DoS slowloris": "DoS",
+    "DoS Slowhttptest": "DoS", "Heartbleed": "DoS",
+    "DDoS": "DDoS",
+    "PortScan": "PortScan",
+    "FTP-Patator": "BruteForce", "SSH-Patator": "BruteForce",
+    "Web Attack \x96 Brute Force": "WebAttack",
+    "Web Attack \x96 XSS": "WebAttack",
+    "Web Attack \x96 Sql Injection": "WebAttack",
+    "Bot": "Botnet",
+    "Infiltration": "Botnet",
+}
+
+# Real MITRE ATT&CK technique IDs commonly associated with each
+# category - a static reference mapping, not a per-flow ML attribution
+# (this model does not do technique classification).
+MITRE_MAP = {
+    "DoS": "T1499 - Endpoint Denial of Service",
+    "DDoS": "T1498 - Network Denial of Service",
+    "PortScan": "T1046 - Network Service Discovery",
+    "BruteForce": "T1110 - Brute Force",
+    "WebAttack": "T1190 - Exploit Public-Facing Application",
+    "Botnet": "T1071 - Application Layer Protocol (C2)",
+}
+
+SEVERITY_MAP = {
+    "DoS": "critical", "DDoS": "critical", "Botnet": "critical",
+    "BruteForce": "high", "WebAttack": "high", "PortScan": "medium",
+}
+
+traffic_log = deque(maxlen=500)  # most-recent-first ring buffer, in memory
+
+
+def _load_holdout():
+    global _holdout_df, _holdout_by_bucket
+    if _holdout_df is not None:
+        return
+    if not os.path.isfile(HOLDOUT_PATH):
+        _holdout_df = pd.DataFrame()
+        return
+    df = pd.read_csv(HOLDOUT_PATH)
+    df.columns = df.columns.str.strip()
+    df["__bucket"] = df["Label"].astype(str).str.strip().map(LABEL_TO_BUCKET).fillna("Botnet")
+    _holdout_df = df
+    _holdout_by_bucket = {b: g for b, g in df.groupby("__bucket")}
+
+
+def _random_ip():
+    return ".".join(str(random.randint(1, 254)) for _ in range(4))
+
+
+def _random_internal_ip():
+    return f"10.0.{random.randint(0, 5)}.{random.randint(1, 254)}"
+
+
+@app.post("/simulate")
+def simulate_traffic(attack_type: str = "Normal", count: int = 10):
+    """
+    Samples `count` REAL held-out rows belonging to `attack_type`'s
+    bucket and runs them through the real model. See module comment
+    above for exactly what's real (the ML inference) vs. cosmetic
+    (the IP addresses).
+    """
+    _load_holdout()
+    if _holdout_df.empty:
+        raise HTTPException(
+            status_code=503,
+            detail="test_holdout.csv not found next to the model - run "
+                   "model/train_model.py (or export_holdout.py) first."
+        )
+
+    bucket = attack_type if attack_type in _holdout_by_bucket else "Normal"
+    pool = _holdout_by_bucket.get(bucket)
+    if pool is None or pool.empty:
+        raise HTTPException(status_code=404, detail=f"No holdout rows for '{attack_type}'")
+
+    n = min(count, len(pool)) if len(pool) < count else count
+    sample = pool.sample(n=n, replace=len(pool) < count)
+    labels = sample["Label"].astype(str).str.strip()
+    features = sample.drop(columns=["Label", "__bucket"])
+
+    df_clean = preprocess(features.copy())
+    preds, probs = predict(df_clean)
+
+    dest_port_col = next((c for c in features.columns if c.strip() == "Destination Port"), None)
+
+    new_entries = []
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    for i in range(len(sample)):
+        real_label = labels.iloc[i]
+        real_bucket = LABEL_TO_BUCKET.get(real_label, "Botnet")
+        predicted_attack = bool(preds[i])
+        port = int(features.iloc[i][dest_port_col]) if dest_port_col else random.choice([80, 443, 22, 3306])
+        proto = "TCP" if port in (80, 443, 22, 3306, 21) else "UDP"
+
+        entry = {
+            "time": now,
+            "source": f"{_random_ip()}:{random.randint(1024, 65000)}",
+            "dest": f"{_random_internal_ip()}:{port}",
+            "proto": proto,
+            "port": port,
+            "label": real_bucket if predicted_attack else "BENIGN",
+            "true_label": real_label,
+            "severity": SEVERITY_MAP.get(real_bucket, "medium") if predicted_attack else "benign",
+            "confidence": round(float(probs[i]), 4),
+            "mitre": MITRE_MAP.get(real_bucket, "-") if predicted_attack else "-",
+        }
+        new_entries.append(entry)
+        traffic_log.appendleft(entry)
+
+    return {"injected": len(new_entries), "entries": new_entries}
+
+
+@app.get("/logs/traffic")
+def get_traffic_logs():
+    return {"logs": list(traffic_log)}
+
+
+# =========================
+# ML Model page
+# =========================
+@app.get("/model/info")
+def model_info():
+    return {
+        "algorithm": "Random Forest",
+        "n_estimators": getattr(ML_MODEL, "n_estimators", None),
+        "dataset": "CIC-IDS2017",
+        "num_features": len(FEATURE_COLUMNS),
+    }
+
+
+@app.get("/model/feature-importance")
+def model_feature_importance(top_n: int = 10):
+    importances = list(zip(FEATURE_COLUMNS, ML_MODEL.feature_importances_))
+    importances.sort(key=lambda x: x[1], reverse=True)
+    top = importances[:top_n]
+    return {"features": [{"name": n, "importance": round(float(v), 5)} for n, v in top]}
+
+
+@app.get("/model/performance")
+def model_performance():
+    """
+    Auto-evaluates against test_holdout.csv (genuinely never trained on)
+    - no upload needed, since this file ships alongside the model.
+
+    Deliberately does NOT report per-class precision/recall/f1 as if
+    six independent predicted classes existed: the deployed model is
+    binary (ATTACK/BENIGN), not multi-class, so that would mean
+    fabricating numbers a binary classifier can't actually produce.
+    What IS reported per attack type (recall, i.e. "of the real X
+    rows, how many did the model flag as an attack") is genuine.
+    """
+    _load_holdout()
+    if _holdout_df.empty:
+        raise HTTPException(status_code=503, detail="test_holdout.csv not found next to the model.")
+
+    df = _holdout_df.drop(columns=["__bucket"])
+    labels = df["Label"].astype(str).str.strip()
+    y_true = (labels.str.upper() != "BENIGN").astype(int)
+    features = df.drop(columns=["Label"])
+
+    df_clean = preprocess(features.copy())
+    preds, _ = predict(df_clean)
+
+    tn, fp, fn, tp = confusion_matrix(y_true, preds, labels=[0, 1]).ravel()
+
+    per_type = {}
+    for label in sorted(labels.unique()):
+        mask = (labels == label).values
+        total = int(mask.sum())
+        flagged = int(preds[mask].sum())
+        if label.upper() == "BENIGN":
+            per_type[label] = {
+                "total": total,
+                "false_positive_rate": round(flagged / total, 4) if total else 0.0
+            }
+        else:
+            per_type[label] = {
+                "total": total,
+                "recall": round(flagged / total, 4) if total else 0.0
+            }
+
+    return {
+        "total_records": int(len(df)),
+        "accuracy": round(accuracy_score(y_true, preds), 4),
+        "precision": round(precision_score(y_true, preds, zero_division=0), 4),
+        "recall": round(recall_score(y_true, preds, zero_division=0), 4),
+        "f1_score": round(f1_score(y_true, preds, zero_division=0), 4),
+        "confusion_matrix": {
+            "true_negative": int(tn), "false_positive": int(fp),
+            "false_negative": int(fn), "true_positive": int(tp)
+        },
+        "per_type": per_type,
     }
 
 # -------------------------
