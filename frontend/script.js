@@ -1,6 +1,9 @@
 let trafficChart = null;
 let attackTypesChart = null;
 
+// TODO: after deploying the backend to Render, replace this with your
+// live URL, e.g. "https://cloud-ai-ids-backend.onrender.com"
+// (see DEPLOY.md). Leave as localhost only for local development.
 const API_BASE = "http://localhost:8000";
 
 // Show selected file name
@@ -54,7 +57,21 @@ async function analyzeAll() {
       updateSOCAlert(summary.attack_ratio);
       renderTrafficChart(summary.benign_detected, summary.attacks_detected);
 
+      // ---------- Threat Intelligence ----------
+      const intelSection = document.getElementById("threatIntel");
+      intelSection.style.display = "block";
 
+      document.getElementById("riskLevel").textContent = summary.risk_level;
+      document.getElementById("analysisText").textContent = summary.analysis;
+
+      const list = document.getElementById("recommendationsList");
+      list.innerHTML = "";
+
+      summary.recommendations.forEach(item => {
+        const li = document.createElement("li");
+        li.textContent = item;
+        list.appendChild(li);
+      });
 
     // ---------- Evaluation Metrics ----------
     formData = new FormData();
@@ -149,23 +166,6 @@ function updateSOCAlert(attackRatio) {
     message.textContent = "High attack volume detected! Immediate investigation required.";
   }
 }
-
-const intelSection = document.getElementById("threatIntel");
-
-intelSection.style.display = "block";
-
-document.getElementById("riskLevel").textContent = summary.risk_level;
-document.getElementById("analysisText").textContent = summary.analysis;
-
-// Clear list
-const list = document.getElementById("recommendationsList");
-list.innerHTML = "";
-
-summary.recommendations.forEach(item => {
-  const li = document.createElement("li");
-  li.textContent = item;
-  list.appendChild(li);
-});
 
 async function loadAttackTypes(formData) {
   try {

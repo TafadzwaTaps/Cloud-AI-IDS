@@ -130,9 +130,9 @@ async def detect_summary(file: UploadFile = File(...)):
         """
         INSERT INTO intrusion_logs 
         (total_records, attacks_detected, benign_detected, attack_ratio)
-        VALUES (?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s)
         """,
-        (total, attacks, benign, ratio)  # ✅ FIX: tuple
+        (total, attacks, benign, ratio)
     )
 
     conn.commit()
@@ -247,9 +247,10 @@ def performance_stats():
 
     # Last 10 scans
     cursor.execute("""
-        SELECT TOP 10 attack_ratio
+        SELECT attack_ratio
         FROM intrusion_logs
         ORDER BY id DESC
+        LIMIT 10
     """)
 
     recent = [float(r[0]) for r in cursor.fetchall()]
@@ -338,4 +339,59 @@ async def attack_type_stats(file: UploadFile = File(...)):
 def get_scan_history():
     return {
         "history": scan_history[-20:]  # last 20 scans
+    }
+
+# -------------------------
+# Per-Attack-Type Performance
+# -------------------------
+@app.post("/stats/attack-type-performance")
+async def attack_type_performance(file: UploadFile = File(...)):
+    """
+    Detection recall broken down by the CSV's original attack-type label
+    (DDoS, PortScan, Infiltration, BENIGN, ...), not just a single blended
+    binary accuracy figure. For BENIGN this reports the false-positive
+    rate instead of recall, since "recall" isn't meaningful for the
+    negative class.
+
+    Feed this the output of export_holdout.py (test_holdout.csv) to get
+    numbers that reflect genuinely unseen data across every category in
+    the dataset, rather than whichever single attack type happens to be
+    in the file you upload.
+    """
+    df = pd.read_csv(file.file)
+    df.columns = df.columns.str.strip()
+
+    if "Label" not in df.columns:
+        raise HTTPException(status_code=400, detail="CSV must contain a 'Label' column")
+
+    labels = df["Label"].astype(str).str.strip()
+    df_features = df.drop(columns=["Label"])
+
+    df_clean = preprocess(df_features)
+    preds, _ = predict(df_clean)
+
+    breakdown = {}
+    for label in sorted(labels.unique()):
+        mask = (labels == label).values
+        total = int(mask.sum())
+        flagged_as_attack = int(preds[mask].sum())
+
+        if label.upper() == "BENIGN":
+            breakdown[label] = {
+                "total": total,
+                "false_positives": flagged_as_attack,
+                "false_positive_rate": round(flagged_as_attack / total, 4) if total else 0.0
+            }
+        else:
+            missed = total - flagged_as_attack
+            breakdown[label] = {
+                "total": total,
+                "detected": flagged_as_attack,
+                "missed": missed,
+                "recall": round(flagged_as_attack / total, 4) if total else 0.0
+            }
+
+    return {
+        "total_records": int(len(df)),
+        "breakdown": breakdown
     }

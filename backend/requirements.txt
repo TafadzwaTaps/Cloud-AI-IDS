@@ -5,4 +5,4 @@ numpy
 scikit-learn
 joblib
 python-multipart
-pyodbc
+psycopg2-binary

@@ -1,14 +1,11 @@
-import pyodbc
+"""Quick sanity check that DATABASE_URL / DB_* env vars reach Supabase."""
+import sys
+sys.path.insert(0, "backend")
 
-conn = pyodbc.connect(
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=localhost,1433;"
-    "DATABASE=CloudAI_IDS;"
-    "UID=sa;"
-    "PWD=Qwerty23$;"
-    "Encrypt=yes;"
-    "TrustServerCertificate=yes;"
-)
+from app.database import get_connection
 
-print("✅ Connected to Docker SQL Server")
+conn = get_connection()
+cur = conn.cursor()
+cur.execute("SELECT COUNT(*) FROM intrusion_logs")
+print(f"✅ Connected to Supabase. intrusion_logs currently has {cur.fetchone()[0]} rows.")
 conn.close()
