@@ -252,6 +252,26 @@ h2 {
   margin-right: 4px;
 }
 
+.sim-select {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  cursor: pointer;
+  max-width: 160px;
+}
+
+.sim-btn.sim-inject {
+  background: var(--cyan);
+  color: #04222a;
+  border: none;
+  font-weight: 700;
+}
+
+.sim-btn.sim-inject:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
 .sim-btn {
   background: var(--panel-alt);
   border: 1px solid var(--border);

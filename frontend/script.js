@@ -16,7 +16,9 @@ const MAX_SERIES_POINTS = 20;
 
 const BUCKET_COLORS = {
   DoS: "#ef4444", DDoS: "#ec4899", PortScan: "#22c55e",
-  BruteForce: "#fb923c", WebAttack: "#a78bfa", Botnet: "#22d3ee"
+  BruteForce: "#fb923c", WebAttack: "#a78bfa", Botnet: "#22d3ee",
+  Exploits: "#f43f5e", Fuzzers: "#eab308", Generic: "#14b8a6",
+  Shellcode: "#dc2626", Backdoor: "#7c3aed", Analysis: "#0ea5e9", Worms: "#84cc16"
 };
 
 let chartTraffic, chartVector, chartDonut, chartMitre, chartFeature;
@@ -490,6 +492,28 @@ async function loadModelView() {
 // ---------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------
+const SIM_ICONS = {
+  Normal: "\ud83d\udcc8", DoS: "\u26a1", DDoS: "\ud83c\udf10", PortScan: "\ud83d\udef0",
+  BruteForce: "\ud83d\udd11", WebAttack: "\ud83e\udde8", Botnet: "\ud83e\udd16",
+  Exploits: "\ud83d\udca5", Fuzzers: "\ud83c\udfb2", Generic: "\ud83d\udd10",
+  Shellcode: "\ud83d\udc1a", Backdoor: "\ud83d\udeaa", Analysis: "\ud83d\udd0d", Worms: "\ud83d\udc1b"
+};
+
+async function populateSimDropdown() {
+  if (!modelInfo) {
+    try {
+      const res = await fetch(`${API_BASE}/model/info`);
+      if (res.ok) modelInfo = await res.json();
+    } catch (e) { return; }
+  }
+  if (!modelInfo || !modelInfo.classes) return;
+
+  const select = document.getElementById("simTypeSelect");
+  const attackClasses = modelInfo.classes.filter(c => c !== "Normal").sort();
+  select.innerHTML = `<option value="Normal">${SIM_ICONS.Normal} Normal</option>` +
+    attackClasses.map(c => `<option value="${c}">${SIM_ICONS[c] || "\u26a0"} ${c}</option>`).join("");
+}
+
 async function boot() {
   try {
     const res = await fetch(`${API_BASE}/logs/traffic`);
@@ -500,6 +524,7 @@ async function boot() {
     }
   } catch (e) {}
 
+  await populateSimDropdown();
   await fetchModelPerformance();
   showView("dashboard");
 }

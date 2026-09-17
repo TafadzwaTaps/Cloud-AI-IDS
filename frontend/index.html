@@ -55,12 +55,10 @@
             </div>
             <div class="topbar-right">
                 <span class="sim-label">TRAFFIC SIM</span>
-                <button class="sim-btn" onclick="simulate('Normal')">📈 Normal</button>
-                <button class="sim-btn sim-dos" onclick="simulate('DoS')">⚡ DoS</button>
-                <button class="sim-btn sim-ddos" onclick="simulate('DDoS')">🌐 DDoS</button>
-                <button class="sim-btn sim-portscan" onclick="simulate('PortScan')">🛰 PortScan</button>
-                <button class="sim-btn sim-bruteforce" onclick="simulate('BruteForce')">🔑 BruteForce</button>
-                <button class="sim-btn sim-webattack" onclick="simulate('WebAttack')">🧨 WebAttack</button>
+                <select id="simTypeSelect" class="sim-select">
+                    <option value="Normal">📈 Normal</option>
+                </select>
+                <button class="sim-btn sim-inject" onclick="simulate(document.getElementById('simTypeSelect').value)">⚡ Inject</button>
             </div>
         </header>
 

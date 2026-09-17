@@ -25,6 +25,7 @@ LABEL_TO_BUCKET = {
     "BENIGN": "Normal",
     "DoS Hulk": "DoS", "DoS GoldenEye": "DoS", "DoS slowloris": "DoS",
     "DoS Slowhttptest": "DoS", "Heartbleed": "DoS",
+    "DoS": "DoS",              # UNSW-NB15's generic DoS category
     "DDoS": "DDoS",
     "NetBIOS": "DDoS",
     "Portmap": "DDoS",
@@ -32,12 +33,22 @@ LABEL_TO_BUCKET = {
     "DrDoS_DNS": "DDoS",
     "LDAP": "DDoS",
     "PortScan": "PortScan",
+    "Reconnaissance": "PortScan",   # UNSW-NB15: scanning/probing behavior
     "FTP-Patator": "BruteForce", "SSH-Patator": "BruteForce",
     "Web Attack � Brute Force": "WebAttack",
     "Web Attack � XSS": "WebAttack",
     "Web Attack � Sql Injection": "WebAttack",
     "Bot": "Botnet",
     "Infiltration": "Botnet",
+    # UNSW-NB15 categories with no clean fit in the original 7 classes -
+    # genuinely new classes, not folded into an existing bucket.
+    "Exploits": "Exploits",
+    "Fuzzers": "Fuzzers",
+    "Generic": "Generic",
+    "Shellcode": "Shellcode",
+    "Backdoor": "Backdoor",
+    "Analysis": "Analysis",
+    "Worms": "Worms",
 }
 
 # =========================
@@ -138,10 +149,12 @@ print(f"Training set size after oversampling:  {len(X_train_final)}")
 # Multi-class model
 # =========================
 model = RandomForestClassifier(
-    n_estimators=100,
+    n_estimators=60,
     random_state=42,
     n_jobs=-1,
-    class_weight="balanced"
+    class_weight="balanced",
+    max_depth=16,
+    min_samples_leaf=5,
 )
 model.fit(X_train_final, y_train_final)
 

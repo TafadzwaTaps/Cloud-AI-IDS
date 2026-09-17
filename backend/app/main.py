@@ -57,6 +57,7 @@ LABEL_TO_BUCKET = {
     "BENIGN": "Normal",
     "DoS Hulk": "DoS", "DoS GoldenEye": "DoS", "DoS slowloris": "DoS",
     "DoS Slowhttptest": "DoS", "Heartbleed": "DoS",
+    "DoS": "DoS",              # UNSW-NB15's generic DoS category
     "DDoS": "DDoS",
     "NetBIOS": "DDoS",         # CICDDoS2019 Day2, reflection/amplification DDoS
     "Portmap": "DDoS",         # CICDDoS2019 Day2, reflection/amplification DDoS
@@ -64,17 +65,33 @@ LABEL_TO_BUCKET = {
     "DrDoS_DNS": "DDoS",       # CICDDoS2019 Day1, DNS reflection/amplification
     "LDAP": "DDoS",            # CICDDoS2019 Day2, LDAP reflection/amplification
     "PortScan": "PortScan",
+    "Reconnaissance": "PortScan",   # UNSW-NB15: scanning/probing behavior
     "FTP-Patator": "BruteForce", "SSH-Patator": "BruteForce",
     "Web Attack \ufffd Brute Force": "WebAttack",
     "Web Attack \ufffd XSS": "WebAttack",
     "Web Attack \ufffd Sql Injection": "WebAttack",
     "Bot": "Botnet",
     "Infiltration": "Botnet",
+    # UNSW-NB15 categories with no clean fit in the original 7 classes -
+    # genuinely new classes. These are intrinsically harder to tell
+    # apart from each other (a documented property of UNSW-NB15 in
+    # published IDS literature, not a pipeline bug) - see /model/info
+    # and /model/performance for the real, honest numbers.
+    "Exploits": "Exploits",
+    "Fuzzers": "Fuzzers",
+    "Generic": "Generic",
+    "Shellcode": "Shellcode",
+    "Backdoor": "Backdoor",
+    "Analysis": "Analysis",
+    "Worms": "Worms",
 }
 
 # Real MITRE ATT&CK technique IDs commonly associated with each
 # category - a static reference mapping, not a per-flow ML attribution
-# (the model classifies traffic type, not attacker technique).
+# (the model classifies traffic type, not attacker technique). Several
+# of the UNSW-NB15-derived classes don't map onto a single ATT&CK
+# technique as cleanly as the CICIDS2017/CICDDoS2019 ones do - these
+# are reasonable best-fit approximations, noted per entry.
 MITRE_MAP = {
     "DoS": "T1499 - Endpoint Denial of Service",
     "DDoS": "T1498 - Network Denial of Service",
@@ -82,11 +99,20 @@ MITRE_MAP = {
     "BruteForce": "T1110 - Brute Force",
     "WebAttack": "T1190 - Exploit Public-Facing Application",
     "Botnet": "T1071 - Application Layer Protocol (C2)",
+    "Exploits": "T1190 - Exploit Public-Facing Application",
+    "Fuzzers": "T1595 - Active Scanning",            # approximate: protocol fuzzing/probing
+    "Generic": "T1600 - Weaken Encryption",           # approximate: generic block-cipher attack
+    "Shellcode": "T1059 - Command and Scripting Interpreter",
+    "Backdoor": "T1505 - Server Software Component",  # approximate: persistent access mechanism
+    "Analysis": "T1189 - Drive-by Compromise",         # approximate: web-script/HTML-based probing
+    "Worms": "T1210 - Exploitation of Remote Services",  # self-propagation
 }
 
 SEVERITY_MAP = {
     "DoS": "critical", "DDoS": "critical", "Botnet": "critical",
     "BruteForce": "high", "WebAttack": "high", "PortScan": "medium",
+    "Exploits": "critical", "Shellcode": "critical", "Backdoor": "critical",
+    "Worms": "critical", "Generic": "high", "Fuzzers": "medium", "Analysis": "medium",
 }
 
 
@@ -610,7 +636,7 @@ def model_info():
     return {
         "algorithm": "Random Forest",
         "n_estimators": getattr(ML_MODEL, "n_estimators", None),
-        "dataset": "CIC-IDS2017 + CICDDoS2019 (NetBIOS, Portmap, DrDoS_NetBIOS, DrDoS_DNS, LDAP)",
+        "dataset": "CIC-IDS2017 + CICDDoS2019 (NetBIOS, Portmap, DrDoS_NetBIOS, DrDoS_DNS, LDAP) + UNSW-NB15 (via CICFlowMeter re-extraction)",
         "num_features": len(FEATURE_COLUMNS),
         "num_classes": len(CLASSES),
         "classes": CLASSES,
