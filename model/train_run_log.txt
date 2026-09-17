@@ -1,72 +1,75 @@
 Class distribution (7-class):
 Label
-Normal        305556
-DDoS          136279
+Normal        315650
+DDoS          290619
 DoS            81468
 PortScan       60039
 BruteForce     13832
 WebAttack       2180
 Botnet          1992
 Name: count, dtype: int64
-  Oversampled 'WebAttack': 1745 -> 2000 rows
+  Oversampled 'WebAttack': 1744 -> 2000 rows
   Oversampled 'Botnet': 1594 -> 2000 rows
 
-Training set size before oversampling: 481076
-Training set size after oversampling:  481737
+Training set size before oversampling: 612624
+Training set size after oversampling:  613286
 /usr/local/lib/python3.12/dist-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but RandomForestClassifier was fitted with feature names
   warnings.warn(
 
 Overall Performance Metrics (7-class, macro-averaged, held-out test set):
-Accuracy: 0.9986364014301156
-Precision (macro): 0.9769407509931012
-Recall (macro): 0.9938569457312255
-F1 (macro): 0.9848382037627523
+Accuracy: 0.9986680247590692
+Precision (macro): 0.9688695682901757
+Recall (macro): 0.9942710250332369
+F1 (macro): 0.980091926082557
 
 Per-class report:
               precision    recall  f1-score   support
 
-      Botnet       0.85      0.97      0.90       398
+      Botnet       0.79      0.98      0.88       398
   BruteForce       1.00      1.00      1.00      2766
-        DDoS       1.00      1.00      1.00     27257
+        DDoS       1.00      1.00      1.00     58124
          DoS       1.00      1.00      1.00     16294
-      Normal       1.00      1.00      1.00     61112
+      Normal       1.00      1.00      1.00     63130
     PortScan       1.00      1.00      1.00     12008
-   WebAttack       1.00      0.99      0.99       435
+   WebAttack       0.99      0.98      0.99       436
 
-    accuracy                           1.00    120270
-   macro avg       0.98      0.99      0.98    120270
-weighted avg       1.00      1.00      1.00    120270
+    accuracy                           1.00    153156
+   macro avg       0.97      0.99      0.98    153156
+weighted avg       1.00      1.00      1.00    153156
 
 
 Confusion Matrix (rows=actual, cols=predicted), class order: ['Botnet', 'BruteForce', 'DDoS', 'DoS', 'Normal', 'PortScan', 'WebAttack']
-[[  385     0     0     0    13     0     0]
- [    0  2766     0     0     0     0     0]
- [    0     0 27251     1     5     0     0]
- [    0     0     0 16280    12     2     0]
- [   69     0     2    25 60988    28     0]
- [    0     0     0     2     0 12004     2]
- [    0     0     0     0     3     0   432]]
+[[  392     0     0     0     6     0     0]
+ [    0  2765     0     0     0     0     1]
+ [    0     0 58104     1    19     0     0]
+ [    0     0     0 16282    10     0     2]
+ [  102     0     3    17 62981    27     0]
+ [    0     0     0     3     4 12001     0]
+ [    0     0     0     1     7     1   427]]
 
 Recall by ORIGINAL attack type (held-out test set, finer than bucket):
-  Bot                               381 / 391     recall=0.974
-  DDoS                            11952 / 11955   recall=1.000
+  Bot                               385 / 391     recall=0.985
+  DDoS                            11946 / 11955   recall=0.999
   DoS GoldenEye                    2058 / 2059    recall=1.000
-  DoS Hulk                        11964 / 11974   recall=0.999
-  DoS Slowhttptest                 1098 / 1100    recall=0.998
-  DoS slowloris                    1158 / 1159    recall=0.999
-  FTP-Patator                      1587 / 1587    recall=1.000
+  DoS Hulk                        11966 / 11974   recall=0.999
+  DoS Slowhttptest                 1099 / 1100    recall=0.999
+  DoS slowloris                    1157 / 1159    recall=0.998
+  DrDoS_DNS                        7723 / 7727    recall=0.999
+  DrDoS_NetBIOS                    7726 / 7727    recall=1.000
+  FTP-Patator                      1586 / 1587    recall=0.999
   Heartbleed                          2 / 2       recall=1.000
-  Infiltration                        4 / 7       recall=0.571
-  NetBIOS                          7721 / 7721    recall=1.000
-  PortScan                        12004 / 12008   recall=1.000
-  Portmap                          7578 / 7581    recall=1.000
+  Infiltration                        7 / 7       recall=1.000
+  LDAP                             7856 / 7856    recall=1.000
+  NetBIOS                         15279 / 15282   recall=1.000
+  PortScan                        12001 / 12008   recall=0.999
+  Portmap                          7574 / 7577    recall=1.000
   SSH-Patator                      1179 / 1179    recall=1.000
-  Web Attack � Brute Force          301 / 301     recall=1.000
-  Web Attack � Sql Injection          4 / 4       recall=1.000
-  Web Attack � XSS                  127 / 130     recall=0.977
+  Web Attack � Brute Force          300 / 302     recall=0.993
+  Web Attack � Sql Injection          3 / 4       recall=0.750
+  Web Attack � XSS                  124 / 130     recall=0.954
 
 Feature importance plot saved to feature_importances.png
 
-Done: test_holdout.csv written: 120270 rows (never used in training)
+Done: test_holdout.csv written: 153156 rows (never used in training)
 
 Final multi-class model, scaler, feature list, and class labels saved.

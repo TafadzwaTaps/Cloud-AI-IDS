@@ -54,7 +54,18 @@ function showToast(message, sub) {
   const host = document.getElementById("toastHost");
   const el = document.createElement("div");
   el.className = "toast";
-  el.innerHTML = `${message}${sub ? `<div class="toast-sub">${sub}</div>` : ""}`;
+
+  const mainLine = document.createElement("div");
+  mainLine.textContent = message;
+  el.appendChild(mainLine);
+
+  if (sub) {
+    const subLine = document.createElement("div");
+    subLine.className = "toast-sub";
+    subLine.textContent = sub;
+    el.appendChild(subLine);
+  }
+
   host.appendChild(el);
   setTimeout(() => el.remove(), 4500);
 }
@@ -69,7 +80,14 @@ async function simulate(attackType, opts) {
     const res = await fetch(`${API_BASE}/simulate?attack_type=${encodeURIComponent(attackType)}&count=${count}`, {
       method: "POST"
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      if (res.status >= 500) {
+        throw new Error(`Server error (HTTP ${res.status}) - the backend may be restarting or out of memory. Try again in a moment.`);
+      }
+      let detail = "";
+      try { detail = (await res.json()).detail || ""; } catch (e) {}
+      throw new Error(detail || `Request failed (HTTP ${res.status})`);
+    }
     const data = await res.json();
 
     allLogs = data.entries.concat(allLogs).slice(0, 500);
@@ -268,7 +286,14 @@ async function uploadTrafficCsv(event) {
 
   try {
     const res = await fetch(`${API_BASE}/detect/csv`, { method: "POST", body: formData });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      if (res.status >= 500) {
+        throw new Error(`Server error (HTTP ${res.status}) - the backend may be restarting or out of memory. Try again in a moment.`);
+      }
+      let detail = "";
+      try { detail = (await res.json()).detail || ""; } catch (e) {}
+      throw new Error(detail || `Request failed (HTTP ${res.status})`);
+    }
     const data = await res.json();
 
     // The uploaded CSV's own IPs (if any) aren't part of what /detect/csv

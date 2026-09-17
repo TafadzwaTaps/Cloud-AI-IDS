@@ -58,8 +58,11 @@ LABEL_TO_BUCKET = {
     "DoS Hulk": "DoS", "DoS GoldenEye": "DoS", "DoS slowloris": "DoS",
     "DoS Slowhttptest": "DoS", "Heartbleed": "DoS",
     "DDoS": "DDoS",
-    "NetBIOS": "DDoS",   # CICDDoS2019 reflection/amplification DDoS
-    "Portmap": "DDoS",   # CICDDoS2019 reflection/amplification DDoS
+    "NetBIOS": "DDoS",         # CICDDoS2019 Day2, reflection/amplification DDoS
+    "Portmap": "DDoS",         # CICDDoS2019 Day2, reflection/amplification DDoS
+    "DrDoS_NetBIOS": "DDoS",   # CICDDoS2019 Day1, same technique, separate capture
+    "DrDoS_DNS": "DDoS",       # CICDDoS2019 Day1, DNS reflection/amplification
+    "LDAP": "DDoS",            # CICDDoS2019 Day2, LDAP reflection/amplification
     "PortScan": "PortScan",
     "FTP-Patator": "BruteForce", "SSH-Patator": "BruteForce",
     "Web Attack \ufffd Brute Force": "WebAttack",
@@ -425,24 +428,106 @@ async def attack_type_performance(file: UploadFile = File(...)):
 # through the actual preprocess()/predict() pipeline. The predicted
 # CLASS and confidence score are genuine multi-class model output.
 HOLDOUT_PATH = os.path.join(PROJECT_ROOT, "model", "test_holdout.csv")
-_holdout_df = None
+_holdout_df = None            # small, trimmed - kept only for /simulate sampling
 _holdout_by_bucket = {}
+_cached_performance = None    # computed once from the FULL holdout, then reused
+
+# How many rows per class to keep resident in memory for the live
+# simulator after startup. /simulate only ever samples a handful of
+# rows per click, so there's no need to hold the full holdout (tens of
+# thousands of rows, tens of MB) in RAM permanently - that's what was
+# driving this app over Render's free-tier memory ceiling and causing
+# the 502/restart loop. The FULL holdout is still used once, in
+# _compute_performance() below, for genuine metrics - just not kept
+# around afterward.
+SIMULATOR_ROWS_PER_CLASS = 1000
+
+
+def _compute_performance(df: pd.DataFrame) -> dict:
+    """Runs the real evaluation once, on the full (untrimmed) holdout."""
+    raw_labels = df["Label"].astype(str).str.strip()
+    y_true = raw_labels.map(bucket_for_raw_label).values
+    features = df.drop(columns=["Label"])
+
+    df_clean = preprocess(features.copy())
+    y_pred, _, _ = predict(df_clean)
+
+    matrix = confusion_matrix(y_true, y_pred, labels=CLASSES)
+
+    precisions, recalls, f1s, supports = precision_recall_fscore_support(
+        y_true, y_pred, labels=CLASSES, zero_division=0
+    )
+    per_class = {
+        cls: {
+            "precision": round(float(p), 4),
+            "recall": round(float(r), 4),
+            "f1_score": round(float(f), 4),
+            "support": int(s),
+        }
+        for cls, p, r, f, s in zip(CLASSES, precisions, recalls, f1s, supports)
+    }
+
+    per_original_label = {}
+    for label in sorted(raw_labels.unique()):
+        mask = (raw_labels == label).values
+        total = int(mask.sum())
+        expected_bucket = bucket_for_raw_label(label)
+        if label.upper() == "BENIGN":
+            fp = int((y_pred[mask] != "Normal").sum())
+            per_original_label[label] = {"total": total, "false_positive_rate": round(fp / total, 4) if total else 0.0}
+        else:
+            correct = int((y_pred[mask] == expected_bucket).sum())
+            per_original_label[label] = {"total": total, "recall": round(correct / total, 4) if total else 0.0}
+
+    return {
+        "total_records": int(len(df)),
+        "accuracy": round(accuracy_score(y_true, y_pred), 4),
+        "precision": round(precision_score(y_true, y_pred, average="macro", zero_division=0), 4),
+        "recall": round(recall_score(y_true, y_pred, average="macro", zero_division=0), 4),
+        "f1_score": round(f1_score(y_true, y_pred, average="macro", zero_division=0), 4),
+        "confusion_matrix": {"labels": CLASSES, "matrix": matrix.tolist()},
+        "per_class": per_class,
+        "per_type": per_original_label,
+    }
+
 
 traffic_log = deque(maxlen=500)  # most-recent-first ring buffer, in memory
 
 
 def _load_holdout():
-    global _holdout_df, _holdout_by_bucket
+    """
+    Loads test_holdout.csv exactly once. Computes and caches the full
+    evaluation immediately (while the full data is in memory), then
+    trims what's kept resident down to SIMULATOR_ROWS_PER_CLASS per
+    class - the big DataFrame is dropped once this function returns,
+    freed by the garbage collector as soon as nothing else references it.
+    """
+    global _holdout_df, _holdout_by_bucket, _cached_performance
     if _holdout_df is not None:
         return
     if not os.path.isfile(HOLDOUT_PATH):
         _holdout_df = pd.DataFrame()
         return
-    df = pd.read_csv(HOLDOUT_PATH)
-    df.columns = df.columns.str.strip()
-    df["__bucket"] = df["Label"].astype(str).str.strip().map(bucket_for_raw_label)
-    _holdout_df = df
-    _holdout_by_bucket = {b: g for b, g in df.groupby("__bucket")}
+
+    raw_cols = pd.read_csv(HOLDOUT_PATH, nrows=0).columns.tolist()
+    label_col = next(c for c in raw_cols if c.strip() == "Label")
+    dtype_map = {c: "float32" for c in raw_cols if c != label_col}
+    full_df = pd.read_csv(HOLDOUT_PATH, dtype=dtype_map, low_memory=False)
+    full_df.columns = full_df.columns.str.strip()
+
+    _cached_performance = _compute_performance(full_df)
+
+    full_df["__bucket"] = full_df["Label"].astype(str).str.strip().map(bucket_for_raw_label)
+    trimmed_parts = []
+    for bucket, group in full_df.groupby("__bucket"):
+        if len(group) > SIMULATOR_ROWS_PER_CLASS:
+            group = group.sample(n=SIMULATOR_ROWS_PER_CLASS, random_state=42)
+        trimmed_parts.append(group)
+    trimmed_df = pd.concat(trimmed_parts, axis=0)
+
+    _holdout_df = trimmed_df
+    _holdout_by_bucket = {b: g for b, g in trimmed_df.groupby("__bucket")}
+    # full_df/trimmed_parts fall out of scope here and get garbage collected
 
 
 def _random_ip():
@@ -525,7 +610,7 @@ def model_info():
     return {
         "algorithm": "Random Forest",
         "n_estimators": getattr(ML_MODEL, "n_estimators", None),
-        "dataset": "CIC-IDS2017 + CICDDoS2019 (NetBIOS, Portmap)",
+        "dataset": "CIC-IDS2017 + CICDDoS2019 (NetBIOS, Portmap, DrDoS_NetBIOS, DrDoS_DNS, LDAP)",
         "num_features": len(FEATURE_COLUMNS),
         "num_classes": len(CLASSES),
         "classes": CLASSES,
@@ -543,66 +628,16 @@ def model_feature_importance(top_n: int = 10):
 @app.get("/model/performance")
 def model_performance():
     """
-    Auto-evaluates against test_holdout.csv (genuinely never trained
-    on) - no upload needed, since this file ships alongside the model.
-
-    Now that the model is truly multi-class, this reports REAL
-    per-class precision/recall/f1 (via sklearn's
-    precision_recall_fscore_support) and a REAL 7x7 confusion matrix -
-    no more binary-only compromise.
+    Real evaluation against test_holdout.csv, computed ONCE (the first
+    time this or /simulate is called) and cached from then on - see
+    _load_holdout()/_compute_performance() above for why: recomputing
+    from the full holdout on every request was part of what pushed this
+    app's memory past Render's free-tier ceiling.
     """
     _load_holdout()
-    if _holdout_df.empty:
+    if _cached_performance is None:
         raise HTTPException(status_code=503, detail="test_holdout.csv not found next to the model.")
-
-    df = _holdout_df.drop(columns=["__bucket"])
-    raw_labels = df["Label"].astype(str).str.strip()
-    y_true = raw_labels.map(bucket_for_raw_label).values
-    features = df.drop(columns=["Label"])
-
-    df_clean = preprocess(features.copy())
-    y_pred, _, _ = predict(df_clean)
-
-    matrix = confusion_matrix(y_true, y_pred, labels=CLASSES)
-
-    precisions, recalls, f1s, supports = precision_recall_fscore_support(
-        y_true, y_pred, labels=CLASSES, zero_division=0
-    )
-    per_class = {
-        cls: {
-            "precision": round(float(p), 4),
-            "recall": round(float(r), 4),
-            "f1_score": round(float(f), 4),
-            "support": int(s),
-        }
-        for cls, p, r, f, s in zip(CLASSES, precisions, recalls, f1s, supports)
-    }
-
-    # Also keep the finer-grained, original-label recall breakdown -
-    # useful for spotting a specific weak attack subtype (e.g.
-    # "DoS slowloris" vs the coarser "DoS" bucket average).
-    per_original_label = {}
-    for label in sorted(raw_labels.unique()):
-        mask = (raw_labels == label).values
-        total = int(mask.sum())
-        expected_bucket = bucket_for_raw_label(label)
-        if label.upper() == "BENIGN":
-            fp = int((y_pred[mask] != "Normal").sum())
-            per_original_label[label] = {"total": total, "false_positive_rate": round(fp / total, 4) if total else 0.0}
-        else:
-            correct = int((y_pred[mask] == expected_bucket).sum())
-            per_original_label[label] = {"total": total, "recall": round(correct / total, 4) if total else 0.0}
-
-    return {
-        "total_records": int(len(df)),
-        "accuracy": round(accuracy_score(y_true, y_pred), 4),
-        "precision": round(precision_score(y_true, y_pred, average="macro", zero_division=0), 4),
-        "recall": round(recall_score(y_true, y_pred, average="macro", zero_division=0), 4),
-        "f1_score": round(f1_score(y_true, y_pred, average="macro", zero_division=0), 4),
-        "confusion_matrix": {"labels": CLASSES, "matrix": matrix.tolist()},
-        "per_class": per_class,
-        "per_type": per_original_label,
-    }
+    return _cached_performance
 
 # -------------------------
 # Serve the frontend dashboard
