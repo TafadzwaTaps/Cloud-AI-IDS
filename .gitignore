@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local training artifacts - NOT meant to be committed
+# (test_holdout.csv, the capped/committed version, is NOT listed here)
+model/test_holdout_full.csv
+model/train_run_log.txt.bak
+
+# Raw dataset files if you keep them in model/ for merge_multi_dataset.py -
+# these are hundreds of MB to multiple GB each and should never be committed
+model/CIC_IDS_2017.csv
+model/*.csv.bak
+model/NetBIOS.csv
+model/Portmap.csv
+model/DrDoS_NetBIOS.csv
+model/DrDoS_DNS.csv
+model/LDAP.csv
+model/CICFlowMeter_out.csv
+model/*-compressed.zip
+
+# Secrets
+.env
+
+# OS
+.DS_Store
+Thumbs.db

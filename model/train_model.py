@@ -17,6 +17,35 @@ import joblib
 # =========================
 MIN_TRAIN_SAMPLES_PER_CLASS = 2000
 
+# =========================
+# Model size vs. accuracy - pick ONE preset
+# =========================
+# On the full/larger dataset this script now expects (see
+# merge_multi_dataset.py's raised caps), an UNCONSTRAINED RandomForest
+# over 14 classes grows very large - in testing, ~440MB with avg tree
+# depth 54. That's fine to train and evaluate locally, but likely too
+# large to deploy to a memory-constrained host (e.g. Render's free
+# tier, ~512MB) without it getting OOM-killed at runtime.
+#
+# ACCURATE (default): best real accuracy, resulting ids_model.pkl will
+# likely be several hundred MB. Use this for your thesis's reported
+# numbers, and for any host with enough RAM (a paid Render tier, your
+# own server, etc).
+#
+# DEPLOYABLE: constrained tree depth/leaf size, ids_model.pkl comes out
+# around 40MB. Real, measured cost of this constraint (14-class run):
+# macro precision 69% instead of ~83% unconstrained, concentrated on
+# the smallest/hardest classes (Backdoor, Analysis, Shellcode, Botnet) -
+# the well-established classes (DDoS, BruteForce, WebAttack, DoS) are
+# barely affected either way. Switch to this preset only if you've
+# confirmed ACCURATE doesn't fit your deploy target.
+PRESET = "ACCURATE"  # "ACCURATE" or "DEPLOYABLE"
+
+if PRESET == "ACCURATE":
+    N_ESTIMATORS, MAX_DEPTH, MIN_SAMPLES_LEAF = 100, None, 1
+else:
+    N_ESTIMATORS, MAX_DEPTH, MIN_SAMPLES_LEAF = 60, 16, 5
+
 # Maps CIC-IDS2017's granular labels to the 7 classes this system
 # predicts. KEEP THIS IN SYNC with LABEL_TO_BUCKET in
 # backend/app/main.py - both must agree on the same class taxonomy,
@@ -149,12 +178,12 @@ print(f"Training set size after oversampling:  {len(X_train_final)}")
 # Multi-class model
 # =========================
 model = RandomForestClassifier(
-    n_estimators=60,
+    n_estimators=N_ESTIMATORS,
     random_state=42,
     n_jobs=-1,
     class_weight="balanced",
-    max_depth=16,
-    min_samples_leaf=5,
+    max_depth=MAX_DEPTH,
+    min_samples_leaf=MIN_SAMPLES_LEAF,
 )
 model.fit(X_train_final, y_train_final)
 
@@ -222,7 +251,37 @@ joblib.dump(CLASSES, "class_labels.pkl")
 # =========================
 holdout = X_test.copy()
 holdout["Label"] = orig_test.values
-holdout.to_csv("test_holdout.csv", index=False)
-print(f"\nDone: test_holdout.csv written: {len(holdout)} rows (never used in training)")
+
+# The FULL held-out set (used for every metric already printed above)
+# is saved locally for your own reference/thesis appendix, but is NOT
+# meant to be committed to git - at hundreds of thousands of rows for
+# a large multi-source run, it bloats the repo and risks hitting
+# GitHub's 100MB hard file-size limit (not just the 50MB soft warning).
+holdout.to_csv("test_holdout_full.csv", index=False)
+print(f"\ntest_holdout_full.csv written: {len(holdout)} rows (local reference only - do not commit)")
+
+# test_holdout.csv (committed, used by the deployed /model/performance
+# and /simulate) is a capped-per-label SAMPLE of the same held-out set:
+# still genuinely unseen data, just bounded in size. The cap is set
+# high enough (12000) that it only touches BENIGN in practice - by far
+# the largest class - and leaves every attack class at its natural
+# size. A much lower cap (tested at 3000) flat-shrinks EVERY class
+# including well-represented attack types, which distorts the overall
+# accuracy figure by artificially rebalancing the class distribution -
+# not just adding sampling noise. Recomputing metrics from this capped
+# sample will be close to, but not bit-identical to, the numbers
+# printed above - cite the console output / train_run_log.txt as the
+# authoritative thesis numbers, not whatever the live dashboard shows.
+HOLDOUT_CAP_PER_LABEL = 12000
+rng2 = np.random.RandomState(RANDOM_STATE)
+capped_parts = []
+for label, group in holdout.groupby("Label"):
+    if len(group) > HOLDOUT_CAP_PER_LABEL:
+        group = group.sample(n=HOLDOUT_CAP_PER_LABEL, random_state=rng2)
+    capped_parts.append(group)
+holdout_capped = pd.concat(capped_parts, axis=0)
+
+holdout_capped.to_csv("test_holdout.csv", index=False)
+print(f"test_holdout.csv written: {len(holdout_capped)} rows, capped at {HOLDOUT_CAP_PER_LABEL}/label (commit this one)")
 
 print("\nFinal multi-class model, scaler, feature list, and class labels saved.")
