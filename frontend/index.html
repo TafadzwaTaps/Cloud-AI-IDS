@@ -223,16 +223,16 @@
                     <canvas id="featureImportanceChart" height="220"></canvas>
                 </div>
                 <div class="panel">
-                    <h2>Per-Attack-Type Recall <span class="badge-note">real, held-out test data</span></h2>
+                    <h2>Per-Class Performance <span class="badge-note">real, held-out test data</span></h2>
                     <p class="note-text">
-                        This model is binary (ATTACK / BENIGN) rather than multi-class, so this
-                        reports genuine recall per real attack type - not fabricated per-class
-                        precision/recall/F1, which would require a multi-class classifier this
-                        system doesn't use.
+                        Genuine multi-class metrics: the model directly predicts one of 7 classes
+                        (Normal, DoS, DDoS, PortScan, BruteForce, WebAttack, Botnet), so precision,
+                        recall and F1 below are computed per class, not simulated from a binary
+                        yes/no.
                     </p>
                     <div class="table-wrap">
                         <table id="perTypeTable">
-                            <thead><tr><th>Type</th><th>Test Rows</th><th>Recall / FP Rate</th></tr></thead>
+                            <thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead>
                             <tbody></tbody>
                         </table>
                     </div>
@@ -240,24 +240,8 @@
             </div>
 
             <div class="panel">
-                <h2>Confusion Matrix <span class="badge-note">binary - actual model output</span></h2>
-                <table class="confusion-table">
-                    <thead>
-                        <tr><th></th><th>Pred BENIGN</th><th>Pred ATTACK</th></tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <th>Actual BENIGN</th>
-                            <td class="cell-correct" id="cmTn">-</td>
-                            <td class="cell-wrong" id="cmFp">-</td>
-                        </tr>
-                        <tr>
-                            <th>Actual ATTACK</th>
-                            <td class="cell-wrong" id="cmFn">-</td>
-                            <td class="cell-correct" id="cmTp">-</td>
-                        </tr>
-                    </tbody>
-                </table>
+                <h2>Confusion Matrix <span class="badge-note">7-class - actual model output</span></h2>
+                <div class="table-wrap" id="confusionMatrixHost"></div>
             </div>
         </section>
 

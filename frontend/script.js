@@ -282,8 +282,8 @@ async function uploadTrafficCsv(event) {
       dest: "-",
       proto: "-",
       port: "-",
-      label: r.prediction === "ATTACK" ? "Uploaded-Attack" : "BENIGN",
-      severity: r.prediction === "ATTACK" ? "high" : "benign",
+      label: r.prediction,
+      severity: r.prediction === "Normal" ? "benign" : "high",
       confidence: r.confidence,
       mitre: "-"
     }));
@@ -377,6 +377,18 @@ function exportAlertsCsv() {
 // ---------------------------------------------------------------
 // ML Model view
 // ---------------------------------------------------------------
+function renderConfusionMatrix(labels, matrix) {
+  const host = document.getElementById("confusionMatrixHost");
+  const header = `<tr><th></th>${labels.map(l => `<th>Pred ${l}</th>`).join("")}</tr>`;
+  const rows = matrix.map((row, i) => `
+    <tr>
+      <th>Actual ${labels[i]}</th>
+      ${row.map((val, j) => `<td class="${i === j ? 'cell-correct' : (val > 0 ? 'cell-wrong' : '')}">${val}</td>`).join("")}
+    </tr>
+  `).join("");
+  host.innerHTML = `<table class="confusion-table"><thead>${header}</thead><tbody>${rows}</tbody></table>`;
+}
+
 async function fetchModelPerformance() {
   try {
     const res = await fetch(`${API_BASE}/model/performance`);
@@ -393,33 +405,31 @@ async function loadModelView() {
   }
   if (modelInfo) {
     document.getElementById("modelTitle").textContent = `${modelInfo.algorithm} (${modelInfo.n_estimators} estimators)`;
-    document.getElementById("modelSub").textContent = `${modelInfo.dataset} · v1.0 · ${modelInfo.num_features} features`;
+    document.getElementById("modelSub").textContent = `${modelInfo.dataset} · v2.0 · ${modelInfo.num_features} features · ${modelInfo.num_classes}-class`;
   }
 
   if (!modelPerf) await fetchModelPerformance();
   if (modelPerf) {
     document.getElementById("mAccuracy").textContent = (modelPerf.accuracy * 100).toFixed(2) + "%";
-    document.getElementById("mPrecision").textContent = (modelPerf.precision * 100).toFixed(2) + "%";
-    document.getElementById("mRecall").textContent = (modelPerf.recall * 100).toFixed(2) + "%";
-    document.getElementById("mF1").textContent = (modelPerf.f1_score * 100).toFixed(2) + "%";
+    document.getElementById("mPrecision").textContent = (modelPerf.precision * 100).toFixed(2) + "% (macro)";
+    document.getElementById("mRecall").textContent = (modelPerf.recall * 100).toFixed(2) + "% (macro)";
+    document.getElementById("mF1").textContent = (modelPerf.f1_score * 100).toFixed(2) + "% (macro)";
 
-    const cm = modelPerf.confusion_matrix;
-    document.getElementById("cmTn").textContent = cm.true_negative;
-    document.getElementById("cmFp").textContent = cm.false_positive;
-    document.getElementById("cmFn").textContent = cm.false_negative;
-    document.getElementById("cmTp").textContent = cm.true_positive;
+    renderConfusionMatrix(modelPerf.confusion_matrix.labels, modelPerf.confusion_matrix.matrix);
 
     const tbody = document.querySelector("#perTypeTable tbody");
-    tbody.innerHTML = Object.entries(modelPerf.per_type).map(([type, stats]) => `
+    tbody.innerHTML = Object.entries(modelPerf.per_class).map(([cls, s]) => `
       <tr>
-        <td>${type}</td>
-        <td>${stats.total}</td>
-        <td>${stats.recall !== undefined ? (stats.recall * 100).toFixed(1) + "% recall" : (stats.false_positive_rate * 100).toFixed(2) + "% FP rate"}</td>
+        <td>${cls}</td>
+        <td>${(s.precision * 100).toFixed(2)}%</td>
+        <td>${(s.recall * 100).toFixed(2)}%</td>
+        <td>${(s.f1_score * 100).toFixed(2)}%</td>
+        <td>${s.support}</td>
       </tr>
     `).join("");
   } else {
     document.querySelector("#perTypeTable tbody").innerHTML =
-      `<tr><td colspan="3" class="note-text">test_holdout.csv not found next to the model - run model/train_model.py first.</td></tr>`;
+      `<tr><td colspan="5" class="note-text">test_holdout.csv not found next to the model - run model/train_model.py first.</td></tr>`;
   }
 
   if (!featureImportance) {

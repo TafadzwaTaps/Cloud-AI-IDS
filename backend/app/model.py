@@ -1,5 +1,6 @@
 import joblib
 import pandas as pd
+import numpy as np
 import os
 
 # Deterministic path resolution: walk up from this file's own absolute
@@ -18,25 +19,34 @@ model = joblib.load(MODEL_PATH)
 scaler = joblib.load(SCALER_PATH)
 FEATURE_COLUMNS = joblib.load(FEATURES_PATH)
 
-# Default matches model.predict()'s implicit 0.5 cutoff. Rare attack
-# types (Infiltration, Heartbleed, Web Attack - Sql Injection, ...) tend
-# to produce lower, less confident attack-probability scores than
-# high-volume attacks like DDoS or PortScan, simply because the model
-# saw far fewer of them even after oversampling in train_model.py.
-# Lowering this (e.g. 0.3) trades some false positives for catching
-# more of those borderline rare-attack cases - tune it against
-# test_holdout.csv (see /stats/attack-type-performance) rather than
-# guessing, and document whatever you land on in the thesis as the
-# ROC-curve tradeoff it is.
-DECISION_THRESHOLD = float(os.getenv("IDS_DECISION_THRESHOLD", "0.5"))
+# The model itself is the source of truth for class order (this is
+# exactly the column order predict_proba returns), rather than a
+# separately-saved list that could drift out of sync with it.
+CLASSES = list(model.classes_)
+NUM_CLASSES = len(CLASSES)
 
 
 def predict(df: pd.DataFrame):
-    # Ensure correct columns and order
+    """
+    Multi-class prediction across CLASSES (e.g. Normal, DoS, DDoS,
+    PortScan, BruteForce, WebAttack, Botnet).
+
+    Returns:
+      labels:     np.array of predicted class name strings, one per row
+      confidence: np.array of the model's probability for its OWN
+                  predicted class (i.e. how sure it is about that
+                  specific call, not a fixed threshold)
+      probs:      full (n_rows, n_classes) probability matrix, columns
+                  in CLASSES order - useful if a caller wants the full
+                  distribution rather than just the top pick
+    """
     df = df.reindex(columns=FEATURE_COLUMNS, fill_value=0)
 
     X_scaled = pd.DataFrame(scaler.transform(df), columns=FEATURE_COLUMNS, index=df.index)
-    probs = model.predict_proba(X_scaled)[:, 1]
-    preds = (probs >= DECISION_THRESHOLD).astype(int)
+    probs = model.predict_proba(X_scaled)
 
-    return preds, probs
+    pred_idx = np.argmax(probs, axis=1)
+    labels = np.array(CLASSES)[pred_idx]
+    confidence = probs[np.arange(len(probs)), pred_idx]
+
+    return labels, confidence, probs
