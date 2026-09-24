@@ -246,6 +246,67 @@
     </main>
 </div>
 
+<!-- ============ Threat Inspection Panel ============ -->
+<div id="inspectOverlay" class="inspect-overlay" style="display:none;" onclick="if(event.target===this) closeInspect()">
+    <aside class="inspect-panel">
+        <div class="inspect-header">
+            <div class="inspect-header-title">
+                <span class="inspect-icon">🛡</span>
+                <div>
+                    <h2>Threat Inspection</h2>
+                    <p class="inspect-sub">Detailed flow features, detection metadata, and AI-powered remediation.</p>
+                </div>
+            </div>
+            <button class="inspect-close" onclick="closeInspect()">✕</button>
+        </div>
+
+        <div class="inspect-body">
+            <div class="inspect-title-row">
+                <span id="inspectLabel" class="inspect-title-label"></span>
+                <span id="inspectSeverityBadge"></span>
+                <span class="tag-pill">ml-classification</span>
+            </div>
+
+            <div class="inspect-card">
+                <div class="inspect-stat-row">
+                    <span class="inspect-stat-name">CONFIDENCE SCORE</span>
+                    <span id="inspectConfidence" class="inspect-stat-value"></span>
+                </div>
+                <div class="confidence-bar"><div id="inspectConfidenceBar" class="confidence-bar-fill"></div></div>
+
+                <div id="inspectTopPredictions" class="top-predictions"></div>
+            </div>
+
+            <div class="inspect-fields">
+                <div class="inspect-field"><span>SOURCE</span><span id="inspectSource">–</span></div>
+                <div class="inspect-field"><span>DESTINATION</span><span id="inspectDest">–</span></div>
+                <div class="inspect-field"><span>PROTOCOL / PORT</span><span id="inspectProto">–</span></div>
+                <div class="inspect-field"><span>FLOW DURATION</span><span id="inspectDuration">–</span></div>
+                <div class="inspect-field"><span>TOTAL PACKETS</span><span id="inspectPackets">–</span></div>
+                <div class="inspect-field"><span>PACKETS / SEC</span><span id="inspectRate">–</span></div>
+                <div class="inspect-field"><span>MITRE ATT&CK</span><span id="inspectMitre">–</span></div>
+            </div>
+
+            <div class="inspect-card">
+                <h4>Detection Basis</h4>
+                <p id="inspectBasis" class="note-text"></p>
+            </div>
+
+            <div class="inspect-ai-card">
+                <div class="inspect-ai-header">
+                    <span class="inspect-ai-title">⚙ <span id="inspectAiTitle">AI Threat Analysis</span></span>
+                    <button id="inspectAnalyzeBtn" class="analyze-btn" onclick="runAiAnalysis()">✨ Analyze</button>
+                </div>
+                <div id="inspectAiBody" class="inspect-ai-body">
+                    <p class="note-text">Click Analyze to generate an AI-powered root cause report and remediation plan.</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="script.js"></script>
 </body>

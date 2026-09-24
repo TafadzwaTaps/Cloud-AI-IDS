@@ -275,9 +275,92 @@ function renderLogsTable() {
   `).join("") || `<tr><td colspan="7" class="note-text">No matching flows.</td></tr>`;
 }
 
+let currentInspectEntry = null;
+
 function inspectEntry(jsonStr) {
-  const entry = JSON.parse(jsonStr);
-  alert(JSON.stringify(entry, null, 2));
+  currentInspectEntry = JSON.parse(jsonStr);
+  openInspectPanel(currentInspectEntry);
+}
+
+function closeInspect() {
+  document.getElementById("inspectOverlay").style.display = "none";
+  currentInspectEntry = null;
+}
+
+function openInspectPanel(entry) {
+  document.getElementById("inspectLabel").textContent = entry.label || "Unknown";
+  document.getElementById("inspectSeverityBadge").innerHTML = severityBadge(entry.severity || "medium");
+
+  const confidencePct = Math.round((entry.confidence || 0) * 100);
+  document.getElementById("inspectConfidence").textContent = confidencePct + "%";
+  document.getElementById("inspectConfidenceBar").style.width = confidencePct + "%";
+
+  const topHost = document.getElementById("inspectTopPredictions");
+  if (entry.top_predictions && entry.top_predictions.length) {
+    topHost.innerHTML = entry.top_predictions.map(p => `
+      <div class="top-pred-row"><span>${p.label}</span><span class="top-pred-value">${(p.probability * 100).toFixed(1)}%</span></div>
+    `).join("");
+  } else {
+    topHost.innerHTML = "";
+  }
+
+  document.getElementById("inspectSource").textContent = entry.source || "–";
+  document.getElementById("inspectDest").textContent = entry.dest || "–";
+  document.getElementById("inspectProto").textContent = entry.proto && entry.port ? `${entry.proto} / ${entry.port}` : "–";
+  document.getElementById("inspectDuration").textContent = entry.flow_duration_ms !== undefined ? `${entry.flow_duration_ms} ms` : "–";
+  document.getElementById("inspectPackets").textContent = entry.total_packets !== undefined ? entry.total_packets : "–";
+  document.getElementById("inspectRate").textContent = entry.flow_packets_per_sec !== undefined ? `${entry.flow_packets_per_sec}/s` : "–";
+  document.getElementById("inspectMitre").textContent = entry.mitre && entry.mitre !== "-" ? entry.mitre : "None (benign)";
+
+  // Detection Basis: describes what the system actually is - a
+  // supervised Random Forest classifier - not a signature or
+  // statistical-anomaly-baseline system.
+  const treeCount = modelInfo ? modelInfo.n_estimators : "60+";
+  document.getElementById("inspectBasis").textContent =
+    `Random Forest classifier (${treeCount} trees, ${modelInfo ? modelInfo.num_features : 78} flow features) predicted "${entry.label}" with ${confidencePct}% confidence.` +
+    (entry.true_label ? ` True label (simulator ground truth): ${entry.true_label}.` : "");
+
+  // Reset AI analysis section for the new entry
+  document.getElementById("inspectAiTitle").textContent = "AI Threat Analysis";
+  document.getElementById("inspectAiBody").innerHTML =
+    `<p class="note-text">Click Analyze to generate an AI-powered root cause report and remediation plan.</p>`;
+  document.getElementById("inspectAnalyzeBtn").disabled = false;
+
+  document.getElementById("inspectOverlay").style.display = "flex";
+}
+
+async function runAiAnalysis() {
+  if (!currentInspectEntry) return;
+  const btn = document.getElementById("inspectAnalyzeBtn");
+  const body = document.getElementById("inspectAiBody");
+  btn.disabled = true;
+  btn.textContent = "Analyzing…";
+  body.innerHTML = `<p class="note-text">Contacting the AI model…</p>`;
+
+  try {
+    const res = await fetch(`${API_BASE}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currentInspectEntry)
+    });
+    if (!res.ok) {
+      let detail = "";
+      try { detail = (await res.json()).detail || ""; } catch (e) {}
+      throw new Error(detail || `Request failed (HTTP ${res.status})`);
+    }
+    const data = await res.json();
+    document.getElementById("inspectAiTitle").textContent = `${(data.model || "AI").toUpperCase()} AI Threat Analysis`;
+    // AI output is untrusted content - render through marked then
+    // sanitize with DOMPurify before inserting, same lesson as the
+    // earlier toast/error-message fix: never trust raw text into innerHTML.
+    const rawHtml = marked.parse(data.analysis || "");
+    body.innerHTML = DOMPurify.sanitize(rawHtml);
+  } catch (err) {
+    body.innerHTML = `<p class="note-text">Analysis failed: ${(err.message || err).toString().replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]))}</p>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✨ Analyze";
+  }
 }
 
 async function uploadTrafficCsv(event) {
@@ -299,9 +382,11 @@ async function uploadTrafficCsv(event) {
     const data = await res.json();
 
     // The uploaded CSV's own IPs (if any) aren't part of what /detect/csv
-    // returns - it only returns row index/prediction/confidence. Source/
-    // dest below are placeholders for display, same as the simulator -
-    // see the backend comment in main.py for why this dataset has none.
+    // returns - it only knows row index and the extracted flow features.
+    // Source/dest below are placeholders for display, same as the
+    // simulator - see the backend comment in main.py for why this
+    // dataset has none. Everything else (severity, mitre, flow
+    // details, top predictions) now comes straight from the backend.
     const now = new Date().toLocaleString();
     const newEntries = data.results.map(r => ({
       time: now,
@@ -310,9 +395,15 @@ async function uploadTrafficCsv(event) {
       proto: "-",
       port: "-",
       label: r.prediction,
-      severity: r.prediction === "Normal" ? "benign" : "high",
+      severity: r.severity,
       confidence: r.confidence,
-      mitre: "-"
+      mitre: r.mitre,
+      flow_duration_ms: r.flow_duration_ms,
+      total_packets: r.total_packets,
+      flow_bytes_per_sec: r.flow_bytes_per_sec,
+      flow_packets_per_sec: r.flow_packets_per_sec,
+      syn_flag_ratio: r.syn_flag_ratio,
+      top_predictions: r.top_predictions
     }));
 
     allLogs = newEntries.concat(allLogs).slice(0, 500);

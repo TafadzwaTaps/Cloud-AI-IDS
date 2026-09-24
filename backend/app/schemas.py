@@ -1,10 +1,22 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
+
+class TopPrediction(BaseModel):
+    label: str
+    probability: float
 
 class DetectionResult(BaseModel):
     row: int
     prediction: str
     confidence: float
+    severity: str
+    mitre: str
+    flow_duration_ms: Optional[float] = None
+    total_packets: Optional[int] = None
+    flow_bytes_per_sec: Optional[float] = None
+    flow_packets_per_sec: Optional[float] = None
+    syn_flag_ratio: Optional[float] = None
+    top_predictions: List[TopPrediction] = []
 
 class DetectionResponse(BaseModel):
     total_records: int

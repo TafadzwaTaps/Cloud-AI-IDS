@@ -1,9 +1,11 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Body
 import pandas as pd
+import numpy as np
 import os
 import random
 from collections import deque
 from app.database import get_supabase
+from app.ai_analysis import generate_threat_analysis
 from app.schemas import StatsSummary
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
@@ -121,6 +123,35 @@ def bucket_for_raw_label(raw_label: str) -> str:
     return LABEL_TO_BUCKET.get(raw_label.strip(), "Botnet")
 
 
+def _flow_details(row_reindexed, probs_row, top_n=3):
+    """
+    Pulls real, already-computed values out of a single flow's feature
+    row and its predict_proba output - used by the Threat Inspection
+    panel. row_reindexed must already be reindexed to FEATURE_COLUMNS
+    (fill_value=0) so lookups are safe even if the source CSV was
+    missing a column. Nothing here is invented: every number is a
+    genuine CICFlowMeter feature or a genuine model probability.
+    """
+    duration_us = float(row_reindexed.get("Flow Duration", 0))  # CICFlowMeter reports this in microseconds
+    total_fwd = float(row_reindexed.get("Total Fwd Packets", 0))
+    total_bwd = float(row_reindexed.get("Total Backward Packets", 0))
+    total_packets = int(round(total_fwd + total_bwd))
+    syn_count = float(row_reindexed.get("SYN Flag Count", 0))
+    syn_ratio = round(syn_count / total_packets, 4) if total_packets else 0.0
+
+    top_idx = np.argsort(probs_row)[::-1][:top_n]
+    top_preds = [{"label": CLASSES[i], "probability": round(float(probs_row[i]), 4)} for i in top_idx]
+
+    return {
+        "flow_duration_ms": round(duration_us / 1000, 2),
+        "total_packets": total_packets,
+        "flow_bytes_per_sec": round(float(row_reindexed.get("Flow Bytes/s", 0)), 2),
+        "flow_packets_per_sec": round(float(row_reindexed.get("Flow Packets/s", 0)), 2),
+        "syn_flag_ratio": syn_ratio,
+        "top_predictions": top_preds,
+    }
+
+
 # -------------------------
 # Health Check
 # -------------------------
@@ -138,14 +169,20 @@ async def detect_intrusion(file: UploadFile = File(...)):
     df = pd.read_csv(file.file)
 
     df_clean = preprocess(df)
-    labels, confidence, _ = predict(df_clean)
+    labels, confidence, probs = predict(df_clean)
+    df_reindexed = df_clean.reindex(columns=FEATURE_COLUMNS, fill_value=0)
 
     results = []
     for i in range(len(labels)):
+        pred = str(labels[i])
+        details = _flow_details(df_reindexed.iloc[i], probs[i])
         results.append({
             "row": i,
-            "prediction": str(labels[i]),
-            "confidence": round(float(confidence[i]), 4)
+            "prediction": pred,
+            "confidence": round(float(confidence[i]), 4),
+            "severity": SEVERITY_MAP.get(pred, "medium") if pred != "Normal" else "benign",
+            "mitre": MITRE_MAP.get(pred, "-") if pred != "Normal" else "-",
+            **details,
         })
 
     MAX_RESULTS = 100  # prevent browser freeze
@@ -591,7 +628,8 @@ def simulate_traffic(attack_type: str = "Normal", count: int = 10):
     features = sample.drop(columns=["Label", "__bucket"])
 
     df_clean = preprocess(features.copy())
-    pred_labels, confidence, _ = predict(df_clean)
+    pred_labels, confidence, probs = predict(df_clean)
+    df_reindexed = df_clean.reindex(columns=FEATURE_COLUMNS, fill_value=0)
 
     dest_port_col = next((c for c in features.columns if c.strip() == "Destination Port"), None)
 
@@ -603,6 +641,7 @@ def simulate_traffic(attack_type: str = "Normal", count: int = 10):
         predicted_class = str(pred_labels[i])
         port = int(features.iloc[i][dest_port_col]) if dest_port_col else random.choice([80, 443, 22, 3306])
         proto = "TCP" if port in (80, 443, 22, 3306, 21) else "UDP"
+        details = _flow_details(df_reindexed.iloc[i], probs[i])
 
         entry = {
             "time": now,
@@ -616,6 +655,7 @@ def simulate_traffic(attack_type: str = "Normal", count: int = 10):
             "severity": SEVERITY_MAP.get(predicted_class, "medium") if predicted_class != "Normal" else "benign",
             "confidence": round(float(confidence[i]), 4),
             "mitre": MITRE_MAP.get(predicted_class, "-") if predicted_class != "Normal" else "-",
+            **details,
         }
         new_entries.append(entry)
         traffic_log.appendleft(entry)
@@ -664,6 +704,24 @@ def model_performance():
     if _cached_performance is None:
         raise HTTPException(status_code=503, detail="test_holdout.csv not found next to the model.")
     return _cached_performance
+
+@app.post("/analyze")
+async def analyze_threat(flow: dict = Body(...)):
+    """
+    Generates an AI-written root-cause/remediation report for a single
+    flow, using the REAL detection data the frontend already has (see
+    _flow_details() above) - the LLM explains and contextualizes real
+    model output, it does not perform its own detection.
+    """
+    try:
+        analysis, model_used = generate_threat_analysis(flow)
+    except RuntimeError as e:
+        # Missing/misconfigured API key - a clear, expected 503, not a crash.
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI analysis request failed: {e}")
+
+    return {"analysis": analysis, "model": model_used}
 
 # -------------------------
 # Serve the frontend dashboard

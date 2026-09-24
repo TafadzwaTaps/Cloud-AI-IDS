@@ -41,6 +41,19 @@ specifically want the frontend hosted somewhere else than the backend
 `frontend/script.js` back to the full backend URL, since it won't be
 same-origin anymore.
 
+## 4. AI Threat Analysis (optional)
+The "Analyze" button in the Threat Inspection panel calls OpenAI to
+generate a root-cause/remediation report for a flagged flow. To enable it:
+1. Get an API key from platform.openai.com.
+2. Add `OPENAI_API_KEY` as a Render environment variable (same place as
+   the Supabase ones).
+3. Optionally set `OPENAI_MODEL` to override the default `gpt-5.4`
+   (e.g. `gpt-5.5` once you're ready to switch).
+
+Without `OPENAI_API_KEY` set, the button still appears but shows a
+clear "AI analysis not configured" message instead of erroring -
+nothing else on the dashboard depends on this being set up.
+
 ## Notes
 - The RandomForest model files (`model/*.pkl`, ~38MB) are committed to
   the repo and loaded from disk on startup - no separate model hosting
