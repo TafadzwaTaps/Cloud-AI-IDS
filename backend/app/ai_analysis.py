@@ -1,23 +1,28 @@
 import os
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
 _client = None
-# Configurable so you're not locked to one model string in code - bump
-# this env var to gpt-5.5 (or whatever's current) without touching code.
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4")
+# Configurable so you're not locked to one model string in code. The
+# "gemini-flash-latest" alias always points to Google's current
+# recommended Flash model, so this keeps working as Google updates it.
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+
+SYSTEM_INSTRUCTION = "You are a precise, concise SOC analyst assistant."
 
 
-def get_openai_client() -> OpenAI:
+def get_gemini_client():
     global _client
     if _client is not None:
         return _client
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "OPENAI_API_KEY is not set. Get one from platform.openai.com "
-            "and set it as an environment variable to enable AI Threat Analysis."
+            "GEMINI_API_KEY is not set. Get a free key from Google AI Studio "
+            "(aistudio.google.com/apikey) and set it as an environment variable "
+            "to enable AI Threat Analysis."
         )
-    _client = OpenAI(api_key=api_key)
+    _client = genai.Client(api_key=api_key)
     return _client
 
 
@@ -71,17 +76,17 @@ response under 400 words."""
 
 def generate_threat_analysis(flow: dict):
     """Returns (analysis_markdown, model_used)."""
-    client = get_openai_client()
+    client = get_gemini_client()
     model = DEFAULT_MODEL
     prompt = build_prompt(flow)
 
-    response = client.chat.completions.create(
+    response = client.models.generate_content(
         model=model,
-        messages=[
-            {"role": "system", "content": "You are a precise, concise SOC analyst assistant."},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=900,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_INSTRUCTION,
+            max_output_tokens=900,
+        ),
     )
-    text = response.choices[0].message.content
+    text = response.text
     return text, model

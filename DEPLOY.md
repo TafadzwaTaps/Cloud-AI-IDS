@@ -42,15 +42,19 @@ specifically want the frontend hosted somewhere else than the backend
 same-origin anymore.
 
 ## 4. AI Threat Analysis (optional)
-The "Analyze" button in the Threat Inspection panel calls OpenAI to
-generate a root-cause/remediation report for a flagged flow. To enable it:
-1. Get an API key from platform.openai.com.
-2. Add `OPENAI_API_KEY` as a Render environment variable (same place as
+The "Analyze" button in the Threat Inspection panel calls Google's
+Gemini API to generate a root-cause/remediation report for a flagged
+flow. To enable it:
+1. Get a free API key from Google AI Studio: aistudio.google.com/apikey.
+2. Add `GEMINI_API_KEY` as a Render environment variable (same place as
    the Supabase ones).
-3. Optionally set `OPENAI_MODEL` to override the default `gpt-5.4`
-   (e.g. `gpt-5.5` once you're ready to switch).
+3. Optionally set `GEMINI_MODEL` to override the default
+   `gemini-flash-latest` (an alias that always points at Google's
+   current recommended Flash model, so it keeps working as Google
+   updates it - pin an exact version string instead if you want fully
+   reproducible output for the thesis write-up).
 
-Without `OPENAI_API_KEY` set, the button still appears but shows a
+Without `GEMINI_API_KEY` set, the button still appears but shows a
 clear "AI analysis not configured" message instead of erroring -
 nothing else on the dashboard depends on this being set up.
 

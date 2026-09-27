@@ -16,7 +16,7 @@ services:
         sync: false   # set manually in the Render dashboard - never commit this
       - key: SUPABASE_SERVICE_KEY
         sync: false   # set manually in the Render dashboard - never commit this
-      - key: OPENAI_API_KEY
-        sync: false   # optional - powers the "Analyze" button; omit to leave that feature disabled
-      - key: OPENAI_MODEL
-        value: gpt-5.4  # optional override, e.g. gpt-5.5 once you want to switch
+      - key: GEMINI_API_KEY
+        sync: false   # optional - powers the "Analyze" button; omit to leave that feature disabled. Free key from aistudio.google.com/apikey
+      - key: GEMINI_MODEL
+        value: gemini-flash-latest  # optional override - this alias auto-tracks Google's current Flash model
