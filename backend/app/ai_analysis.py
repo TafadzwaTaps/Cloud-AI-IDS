@@ -69,18 +69,38 @@ Flow details (from CICFlowMeter feature extraction):
 - Flow rate: {flow.get('flow_packets_per_sec', 'n/a')} packets/s, {flow.get('flow_bytes_per_sec', 'n/a')} bytes/s
 - SYN flag ratio: {flow.get('syn_flag_ratio', 'n/a')}
 
-Write a concise SOC-style report in Markdown with exactly these sections:
-## Root Cause Analysis
-## Attack Signature
-## Affected Assets
-## Recommended Remediation
+Write a thorough, technical SOC-style report in Markdown with exactly these
+sections:
 
-Recommended Remediation should be numbered steps, with example firewall/IDS rule
-syntax where relevant. Be specific to the actual values above rather than generic.
-If the source/destination IPs look like private/demo addresses (10.x.x.x
+## Root Cause Analysis
+Explain mechanistically what this attack class does at the protocol/traffic
+level, and connect that to the SPECIFIC numbers above (duration, packet/byte
+rate, SYN ratio, port) - state plainly which of those values are consistent
+with this attack type and why, not just that the classifier flagged it.
+
+## Attack Signature
+Describe the traffic pattern a human analyst or a signature-based tool (e.g.
+Snort/Suricata) would look for to confirm this independently of the ML
+classifier's verdict.
+
+## Affected Assets
+Reason about what the destination host/port combination implies about which
+service or asset is exposed, and the realistic blast radius if this is real.
+
+## Recommended Remediation
+At least 4 numbered, concrete steps, ordered from immediate containment to
+longer-term hardening. Include real firewall/IDS rule syntax (iptables,
+Suricata, or similar) specific to the IPs/ports/protocol above, not
+placeholders. Explain briefly WHY each step helps, not just what to run.
+
+Be specific to the actual values above rather than generic boilerplate - a
+reader should be able to tell this report apart from a templated one. If the
+source/destination IPs look like private/demo addresses (10.x.x.x
 destinations, randomly-generated-looking source IPs), note plainly that this
-appears to be simulated/demo traffic rather than a real incident. Keep the whole
-response under 400 words."""
+appears to be simulated/demo traffic rather than a real incident, but still
+write the report as if advising on a real occurrence of this attack pattern.
+Aim for 500-800 words - depth and technical specificity matter more than
+brevity here."""
 
 
 def _discover_live_flash_model(client) -> str:
@@ -111,6 +131,22 @@ def _discover_live_flash_model(client) -> str:
     return candidates_found[0]
 
 
+def _thinking_config_for(model_id: str):
+    """
+    Flash models default to minimal reasoning for speed, which is exactly
+    why the reports were shallow - this turns reasoning depth up. The
+    param name differs by model generation, so pick by name and let the
+    caller fall back to no thinking config at all if even this is wrong
+    for whatever model ends up live.
+    """
+    name = model_id.lower()
+    if "gemini-3" in name:
+        return types.ThinkingConfig(thinking_level="high")
+    if "gemini-2.5" in name or "gemini-2-5" in name:
+        return types.ThinkingConfig(thinking_budget=-1)  # -1 = dynamic/unbounded
+    return None
+
+
 def generate_threat_analysis(flow: dict):
     """Returns (analysis_markdown, model_used)."""
     global _working_model
@@ -118,18 +154,30 @@ def generate_threat_analysis(flow: dict):
     model = _working_model or DEFAULT_MODEL
     prompt = build_prompt(flow)
 
-    def _call(model_id):
+    def _call(model_id, use_thinking=True):
+        thinking_config = _thinking_config_for(model_id) if use_thinking else None
         return client.models.generate_content(
             model=model_id,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
-                max_output_tokens=900,
+                max_output_tokens=2048,
+                thinking_config=thinking_config,
             ),
         )
 
+    def _call_with_thinking_fallback(model_id):
+        try:
+            return _call(model_id, use_thinking=True)
+        except Exception as e:
+            if "thinking" not in str(e).lower():
+                raise
+            # This model doesn't like our thinking_config shape - retry
+            # once without it rather than losing the whole report over it.
+            return _call(model_id, use_thinking=False)
+
     try:
-        response = _call(model)
+        response = _call_with_thinking_fallback(model)
     except Exception as e:
         is_not_found = "404" in str(e) or "NOT_FOUND" in str(e)
         if not is_not_found:
@@ -138,7 +186,7 @@ def generate_threat_analysis(flow: dict):
         # live right now and retry once with that instead of failing.
         try:
             fallback_model = _discover_live_flash_model(client)
-            response = _call(fallback_model)
+            response = _call_with_thinking_fallback(fallback_model)
             model = fallback_model
             _working_model = fallback_model  # remember it for next time
         except Exception as e2:
