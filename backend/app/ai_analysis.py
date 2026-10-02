@@ -3,15 +3,19 @@ from google import genai
 from google.genai import types
 
 _client = None
-# Configurable so you're not locked to one model string in code.
-# NOTE: deliberately pinned to a real, versioned model id rather than
-# the "gemini-flash-latest" alias - that alias was resolving to the
-# now-discontinued gemini-2.0-flash and threw a confusing 404 NOT_FOUND
-# ("This model models/gemini-2.0-flash is no longer available") on
-# every /analyze call. Bump this env var when you want to move to a
-# newer model (e.g. gemini-3.5-flash), but always use a real, current
-# model id - check aistudio.google.com/models for what's live.
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+# Starting point only - Google has been retiring Gemini Flash model
+# ids every few months (gemini-flash-latest -> pointed at discontinued
+# gemini-2.0-flash; gemini-2.5-flash -> retired "for new users" in
+# favor of gemini-3.8-flash, as of Oct 2026). Pinning any single id
+# here just means this breaks again next time Google rolls a model.
+# So generate_threat_analysis() below auto-recovers from a 404 by
+# asking the API what's actually live right now and retrying once -
+# this env var is only the first guess, not a hard requirement.
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+
+# Cache of the model id that last actually worked, so once we discover
+# a live one we don't re-discover on every single request.
+_working_model = None
 
 SYSTEM_INSTRUCTION = "You are a precise, concise SOC analyst assistant."
 
@@ -79,25 +83,70 @@ appears to be simulated/demo traffic rather than a real incident. Keep the whole
 response under 400 words."""
 
 
+def _discover_live_flash_model(client) -> str:
+    """
+    Asks the Gemini API itself which models are currently callable and
+    picks a Flash-tier one (cheap/fast - good enough for a short SOC
+    report, and what the free AI Studio tier is meant for). This is
+    the fallback for when a hardcoded model id gets retired out from
+    under us, which has now happened twice in the same week.
+    """
+    candidates_found = []
+    for m in client.models.list():
+        name = getattr(m, "name", "") or ""
+        short_name = name.split("/", 1)[-1]  # "models/gemini-3.8-flash" -> "gemini-3.8-flash"
+        actions = getattr(m, "supported_actions", None) or []
+        if "generateContent" in actions and "flash" in short_name.lower():
+            candidates_found.append(short_name)
+
+    if not candidates_found:
+        raise RuntimeError(
+            "Gemini API returned no usable Flash-tier model for this API key. "
+            "Check aistudio.google.com/models for what's currently available "
+            "and set GEMINI_MODEL explicitly."
+        )
+    # Prefer the lexicographically highest version string (newest), e.g.
+    # gemini-3.8-flash over gemini-2.5-flash.
+    candidates_found.sort(reverse=True)
+    return candidates_found[0]
+
+
 def generate_threat_analysis(flow: dict):
     """Returns (analysis_markdown, model_used)."""
+    global _working_model
     client = get_gemini_client()
-    model = DEFAULT_MODEL
+    model = _working_model or DEFAULT_MODEL
     prompt = build_prompt(flow)
 
-    try:
-        response = client.models.generate_content(
-            model=model,
+    def _call(model_id):
+        return client.models.generate_content(
+            model=model_id,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
                 max_output_tokens=900,
             ),
         )
+
+    try:
+        response = _call(model)
     except Exception as e:
-        # Surface the real Gemini error (bad model id, quota, auth, etc.)
-        # instead of letting a raw SDK exception bubble up as an opaque 502.
-        raise RuntimeError(f"Gemini request failed ({model}): {e}") from e
+        is_not_found = "404" in str(e) or "NOT_FOUND" in str(e)
+        if not is_not_found:
+            raise RuntimeError(f"Gemini request failed ({model}): {e}") from e
+        # The configured/cached model id was retired - ask the API what's
+        # live right now and retry once with that instead of failing.
+        try:
+            fallback_model = _discover_live_flash_model(client)
+            response = _call(fallback_model)
+            model = fallback_model
+            _working_model = fallback_model  # remember it for next time
+        except Exception as e2:
+            raise RuntimeError(
+                f"Gemini request failed: configured model '{model}' is no longer "
+                f"available ({e}), and auto-discovering a replacement also failed "
+                f"({e2}). Set GEMINI_MODEL to a current id from aistudio.google.com/models."
+            ) from e2
 
     # response.text raises if the model returned no usable content (blocked
     # by a safety filter, hit MAX_TOKENS with nothing generated, etc.) -

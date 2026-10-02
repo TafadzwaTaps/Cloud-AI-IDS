@@ -19,4 +19,4 @@ services:
       - key: GEMINI_API_KEY
         sync: false   # optional - powers the "Analyze" button; omit to leave that feature disabled. Free key from aistudio.google.com/apikey
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash  # pinned, real model id - "gemini-flash-latest" is a trap: it currently 404s (resolves to a discontinued model)
+        value: gemini-3.8-flash  # just a starting guess - the backend auto-falls-back to whatever Gemini model is actually live if this one gets retired

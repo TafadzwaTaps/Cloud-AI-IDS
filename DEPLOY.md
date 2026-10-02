@@ -49,10 +49,13 @@ flow. To enable it:
 2. Add `GEMINI_API_KEY` as a Render environment variable (same place as
    the Supabase ones).
 3. Optionally set `GEMINI_MODEL` to override the default
-   `gemini-2.5-flash`. Use a real, currently-supported model id from
-   aistudio.google.com/models - avoid the "-latest" style aliases
-   (e.g. `gemini-flash-latest`), which can silently resolve to a
-   discontinued model and fail every request with a 404.
+   `gemini-3.8-flash`. Google has been retiring Flash model ids every
+   few months, so this is just a starting guess - if it gets retired
+   too, the backend automatically asks the Gemini API which model is
+   currently live and retries with that instead (see `ai_analysis.py`),
+   so the Analyze button keeps working without a redeploy. The
+   `/analyze` response includes a `model` field naming whichever
+   model actually served that report, if you want to confirm it.
 
 Without `GEMINI_API_KEY` set, the button still appears but shows a
 clear "AI analysis not configured" message instead of erroring -
