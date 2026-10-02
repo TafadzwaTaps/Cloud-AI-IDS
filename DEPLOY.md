@@ -49,10 +49,10 @@ flow. To enable it:
 2. Add `GEMINI_API_KEY` as a Render environment variable (same place as
    the Supabase ones).
 3. Optionally set `GEMINI_MODEL` to override the default
-   `gemini-flash-latest` (an alias that always points at Google's
-   current recommended Flash model, so it keeps working as Google
-   updates it - pin an exact version string instead if you want fully
-   reproducible output for the thesis write-up).
+   `gemini-2.5-flash`. Use a real, currently-supported model id from
+   aistudio.google.com/models - avoid the "-latest" style aliases
+   (e.g. `gemini-flash-latest`), which can silently resolve to a
+   discontinued model and fail every request with a 404.
 
 Without `GEMINI_API_KEY` set, the button still appears but shows a
 clear "AI analysis not configured" message instead of erroring -

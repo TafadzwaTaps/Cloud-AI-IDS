@@ -19,4 +19,4 @@ services:
       - key: GEMINI_API_KEY
         sync: false   # optional - powers the "Analyze" button; omit to leave that feature disabled. Free key from aistudio.google.com/apikey
       - key: GEMINI_MODEL
-        value: gemini-flash-latest  # optional override - this alias auto-tracks Google's current Flash model
+        value: gemini-2.5-flash  # pinned, real model id - "gemini-flash-latest" is a trap: it currently 404s (resolves to a discontinued model)

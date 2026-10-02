@@ -3,10 +3,15 @@ from google import genai
 from google.genai import types
 
 _client = None
-# Configurable so you're not locked to one model string in code. The
-# "gemini-flash-latest" alias always points to Google's current
-# recommended Flash model, so this keeps working as Google updates it.
-DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+# Configurable so you're not locked to one model string in code.
+# NOTE: deliberately pinned to a real, versioned model id rather than
+# the "gemini-flash-latest" alias - that alias was resolving to the
+# now-discontinued gemini-2.0-flash and threw a confusing 404 NOT_FOUND
+# ("This model models/gemini-2.0-flash is no longer available") on
+# every /analyze call. Bump this env var when you want to move to a
+# newer model (e.g. gemini-3.5-flash), but always use a real, current
+# model id - check aistudio.google.com/models for what's live.
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 SYSTEM_INSTRUCTION = "You are a precise, concise SOC analyst assistant."
 
@@ -80,13 +85,31 @@ def generate_threat_analysis(flow: dict):
     model = DEFAULT_MODEL
     prompt = build_prompt(flow)
 
-    response = client.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            max_output_tokens=900,
-        ),
-    )
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                max_output_tokens=900,
+            ),
+        )
+    except Exception as e:
+        # Surface the real Gemini error (bad model id, quota, auth, etc.)
+        # instead of letting a raw SDK exception bubble up as an opaque 502.
+        raise RuntimeError(f"Gemini request failed ({model}): {e}") from e
+
+    # response.text raises if the model returned no usable content (blocked
+    # by a safety filter, hit MAX_TOKENS with nothing generated, etc.) -
+    # handle that explicitly instead of crashing with a bare 502.
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates or not getattr(candidates[0], "content", None):
+        finish_reason = getattr(candidates[0], "finish_reason", "unknown") if candidates else "no candidates"
+        raise RuntimeError(
+            f"Gemini returned no content for this flow (finish_reason={finish_reason}). "
+            "This can happen if the flow data triggered a safety filter, or the "
+            "response was truncated. Try again, or inspect a different flow."
+        )
+
     text = response.text
     return text, model
